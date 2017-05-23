@@ -1,0 +1,2 @@
+# MarketingMixModeling
+Rによるマーケティングミックスモデリング
