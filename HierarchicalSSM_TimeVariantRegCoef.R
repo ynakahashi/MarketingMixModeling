@@ -31,31 +31,63 @@ options(mc.cores = parallel::detectCores())
 ##   Model 1 : log(Y_ti) ~ state_ti + beta_ti * X_ti + error_ti
 ################################################################################
 ####### simulation parameters settings
+set.seed(123)
 simulate_y <- function(pars) {
    n         <- pars[1] # num of observation
    mu        <- pars[2] # intercept
-   beta_01   <- pars[3] # regression coefficient of X1 to be esitmated
-   beta_02   <- pars[4] # regression coefficient of X2 to be esitmated
+   var_e     <- pars[3] # residual variance
+   beta_01   <- pars[4] # regression coefficient of X1 to be esitmated
    lambda_01 <- pars[5] # decay rate of Ad-Stock effect of X1
-   lambda_02 <- pars[6] # decay rate of Ad-Stock effect of X2
-   var_e     <- pars[7] # residual variance
+   beta_02   <- pars[6] # regression coefficient of X2 to be esitmated
+   lambda_02 <- pars[7] # decay rate of Ad-Stock effect of X2
    
-   X_01_raw <- rnorm(n, 100, 2) * ifelse(runif(n) > 0.7, 0, 1)
+   X_01_raw <- rnorm(n, 3, 2) * ifelse(runif(n) > 0.7, 0, 1)
    X_01_fil <- stats::filter(X_01_raw, lambda_01, "recursive")
    
-   X_02_raw <- rnorm(n, 100, 2) * ifelse(runif(n) > 0.2, 0, 1)
+   X_02_raw <- rnorm(n, 2, 2) * ifelse(runif(n) > 0.2, 0, 1)
    X_02_fil <- stats::filter(X_02_raw, lambda_02, "recursive")
    
    error <- rnorm(n, 0, sqrt(var_e))
    
    y     <- mu + beta_01 * X_01_fil + beta_02 * X_02_fil + error
+   # y     <- mu + beta_01 * X_01_fil + error
    dat <- data.frame(
-      "Y" = y,
-      "X_01" = X_01_raw,
-      "X_02" = X_02_raw,
-      "Y_lag" = dplyr::lag(y, 1))
-   return(na.omit(dat))
+      "Y"          = y,
+      "X_01"       = X_01_raw,
+      "X_02"       = X_02_raw,
+      "X_01_Fil"   = X_01_fil,
+      "X_02_Fil"   = X_02_fil,
+      "Y_lag"      = dplyr::lag(y, 1),
+      "True_Error" = error)
+   return(dat)
 }
+
+
+init_par <- array(c(100, 5, 2, 0.5, 0.9, 0.3, 0.2))
+simulate_y(init_par)
+
+dat_Ana <- na.omit(simulate_y(init_par))
+
+################################################################################
+## Run stan
+################################################################################
+## model
+dat_Ord <- list(N    = nrow(dat_Ana),
+                Y    = dat_Ana$Y,
+                # K = 1,
+                X_01 = dat_Ana$X_01,
+                X_02 = dat_Ana$X_02)
+
+
+## fitting 
+fit_01 <- stan(file = './HierarchicalSSM_TimeVariantRegCoef_Sim.stan', 
+               data = dat_Ord, 
+               iter = 500,
+               chains = 4,
+               seed = 1234)
+
+
+
 
 
 
