@@ -98,7 +98,7 @@ pars <- c("mu", "var_error", "beta_X_01", "lambda_X_01", "beta_X_02",
           "lambda_X_02")
 print(fit_01)
 stan_trace(fit_01, pars = pars)
-# stan_hist(fit_01, pars = pars)
+stan_hist(fit_01, pars = pars)
 stan_dens(fit_01, separate_chains = T, pars = pars)
 stan_ac(fit_01, separate_chains = T, pars = pars)
 
