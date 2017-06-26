@@ -49,7 +49,6 @@ simulate_y <- function(pars) {
    error <- rnorm(n, 0, sqrt(var_e))
    
    y     <- mu + beta_01 * X_01_fil + beta_02 * X_02_fil + error
-   # y     <- mu + beta_01 * X_01_fil + error
    dat <- data.frame(
       "Y"          = y,
       "X_01"       = X_01_raw,
@@ -61,12 +60,8 @@ simulate_y <- function(pars) {
    return(dat)
 }
 
-
 init_par <- array(c(100, 5, 2, 0.5, 0.6, 0.8, 0.5))
-# simulate_y(init_par)
-
-dat_Ana <- na.omit(simulate_y(init_par))
-data_stats <- c(mean(dat_Ana$Y), var(dat_Ana$True_Error), init_par[-c(1:3)])
+dat_Ana  <- na.omit(simulate_y(init_par))
 
 ################################################################################
 ## Run stan
@@ -101,12 +96,14 @@ lambda_rows <- rownames(ests)[grep("lambda_*", rownames(ests))]
 ## Plot
 pars <- c("mu", "var_error", "beta_X_01", "lambda_X_01", "beta_X_02",
           "lambda_X_02")
+print(fit_01)
 stan_trace(fit_01, pars = pars)
 # stan_hist(fit_01, pars = pars)
 stan_dens(fit_01, separate_chains = T, pars = pars)
 stan_ac(fit_01, separate_chains = T, pars = pars)
 
 ## Accuracy
+data_stats <- c(mean(dat_Ana$Y), var(dat_Ana$True_Error), init_par[-c(1:3)])
 Comp_Parameters <- data.frame(
    "True_Parameter" = c(init_par[-1]),
    "Data_Parameter" = data_stats,
