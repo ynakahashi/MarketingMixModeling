@@ -15,7 +15,7 @@ setwd(work_dir)
 
 ## libraries
 library(dplyr)
-
+library(tidyr)
 
 ################################################################################
 ## Palda model
@@ -111,5 +111,81 @@ MASS::truehist(results_optim[, 1])
 MASS::truehist(results_optim[, 2])
 MASS::truehist(results_optim[, 3])
 MASS::truehist(results_optim[, 4])
+
+
+
+################################################################################
+## GA
+################################################################################
+# install.packages("GA")
+library(GA)
+
+## Data simulation function
+simulate_y <- function(pars) {
+   ## Simulation parameters
+   n         <- pars[1] # num of observation
+   mu        <- pars[2] # intercept
+   var_e     <- pars[3] # residual variance
+   beta_01   <- pars[4] # regression coefficient of X1 to be esitmated
+   lambda_01 <- pars[5] # decay rate of Ad-Stock effect of X1
+   beta_02   <- pars[6] # regression coefficient of X2 to be esitmated
+   lambda_02 <- pars[7] # decay rate of Ad-Stock effect of X2
+   
+   ## Create true Ad-Stock variables
+   X_01_raw <- rgamma(n, 3) * ifelse(runif(n) > 0.7, 0, 1)
+   X_01_fil <- stats::filter(X_01_raw, lambda_01, "recursive")
+   
+   X_02_raw <- rgamma(n, 2) * ifelse(runif(n) > 0.8, 0, 1)
+   X_02_fil <- stats::filter(X_02_raw, lambda_02, "recursive")
+   
+   ## Create residuals
+   error <- rnorm(n, 0, sqrt(var_e))
+   
+   ## Create observations   
+   y     <- mu + beta_01 * X_01_fil + beta_02 * X_02_fil + error
+   
+   ## Return dataset
+   dat <- data.frame(
+      "Y"          = y,
+      "X_01"       = X_01_raw,
+      "X_02"       = X_02_raw,
+      "X_01_Fil"   = X_01_fil,
+      "X_02_Fil"   = X_02_fil,
+      "Y_lag"      = dplyr::lag(y, 1),
+      "True_Error" = error)
+   return(dat)
+}
+
+## Data simulation
+set.seed(123)
+init_par <- array(c(100, 5, 2, 0.5, 0.6, 0.8, 0.5))
+dat_Ana  <- na.omit(simulate_y(init_par))
+
+## Define objective function
+OLS <- function(dat, pars) {
+   X_01_Fil_E <- stats::filter(dat$X_01, pars[3], "recursive")
+   X_02_Fil_E <- stats::filter(dat$X_02, pars[5], "recursive")
+   Y_hat <- pars[1] + pars[2] * X_01_Fil_E + pars[4] * X_02_Fil_E
+   SSE   <- t(dat$Y - Y_hat) %*% (dat$Y - Y_hat)
+   return(SSE)
+}
+
+
+## Fit via GA
+res_GA <- ga(type = 'real-valued', 
+             min = c(0, 0, 0, 0, 0), 
+             max = c(20, 2, 1, 2, 1),
+             popSize = 50, maxiter = 50, 
+             names = c('Intercept', 'b_01', 'l_01', 'b_02', 'l_02'),
+             keepBest = T, 
+             fitness = function(b) OLS(dat_Ana, b))
+
+## Result
+summary(res_GA)$solution
+init_par[c(-1, -3)]
+
+summary(res_GA)$fitness ### SSE.ga
+sqrt(summary(res_GA)$fitness / nrow(dat_Ana))
+
 
 
