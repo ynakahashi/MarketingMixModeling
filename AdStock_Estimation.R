@@ -175,17 +175,17 @@ OLS <- function(dat, pars) {
 res_GA <- ga(type = 'real-valued', 
              min = c(0, 0, 0, 0, 0), 
              max = c(20, 2, 1, 2, 1),
-             popSize = 50, maxiter = 50, 
+             popSize = 500, maxiter = 500, 
              names = c('Intercept', 'b_01', 'l_01', 'b_02', 'l_02'),
              keepBest = T, 
-             fitness = function(b) OLS(dat_Ana, b))
+             fitness = function(b) -OLS(dat_Ana, b))
 
 ## Result
 summary(res_GA)$solution
 init_par[c(-1, -3)]
 
-summary(res_GA)$fitness ### SSE.ga
-sqrt(summary(res_GA)$fitness / nrow(dat_Ana))
+-summary(res_GA)$fitness / (nrow(dat_Ana) - 6) ### Residual variance
+init_par[3]
 
 
 
