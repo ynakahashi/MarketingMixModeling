@@ -28,7 +28,6 @@ pars <- c(n, mu, var_e,
 
 Month <- c("Jan", "Feb", "Mar", "Apr", "May", "Jun", 
            "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
-
           
 ### Generate simulation data
 simulate_y <- function(pars, seed = 123) {
@@ -94,13 +93,22 @@ simulate_y <- function(pars, seed = 123) {
       "X_05_Fil"   = X_05_fil,
       "Y_lag"      = dplyr::lag(y, 1),
       "True_Error" = error,
-      "Year"       = rep(2001:(2001 + n_year - 1), each = n_per_year * n_per_month),
-      "Month"      = rep(rep(Month, each = n_per_month), n_year))
+      "Year"       = paste0("Year_", rep(2001:(2001 + n_year - 1), each = n_per_year * n_per_month)),
+      "Month"      = factor(rep(rep(Month, each = n_per_month), n_year),
+                            levels = Month))
    return(dat)
 }
 
 ## Data simulation
 dat  <- na.omit(simulate_y(pars))
+dat_Year  <- psych::dummy.code(dat$Year)
+dat_Month <- psych::dummy.code(dat$Month)
+
+dat_Ana <- data.frame(cbind(
+   dat[, -which(colnames(dat) %in% c("Year", "Month"))],
+   dat_Year,
+   dat_Month))
+
 
 
 ### reg for GA ##############################
@@ -127,11 +135,8 @@ get_model <- function(x) {
 
 ### fixed variables ##############################
 fixed_vars <- list(
-   "Jan", "Feb", "Mar", "Apr", "May", "Jun", 
-   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-   "FiscalYearEnd", "GW", "OBON", "SW", "nenmatsunenshi",
-   "NEWYEAR.DAYS", "HolidayNum", "TaxRateUp"
-)
+   "Year_2001", "Year_2002", "Year_2003", "Year_2004", 
+   "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 
 ### variables to be optimized ##############################
 pred_vars_all <- list(
@@ -149,17 +154,26 @@ elite_solution <- c(1, 1, 1, 0, 0, 0, 0, 1, 0)
 ### similar solutions to eliteSolution
 other_solution <- matrix(elite_solution, population_size - 1, length(pred_vars_all),
                          byrow = T)
-for (i in 1:(population_size - 1)) {
-   for (j in 1:length(pred_vars_all)) {
-      if (runif(1) < 1.0 / length(pred_vars_all)) {
-         if (other_solution[i, j] == 0) other_solution[i, j] <- 1
-         else otherSolution[i, j] <- 0
-      }
-   }
-}
+
+# for (i in 1:(population_size - 1)) {
+#    for (j in 1:length(pred_vars_all)) {
+#       if (runif(1) < 1.0 / length(pred_vars_all)) {
+#          if (other_solution[i, j] == 0) other_solution[i, j] <- 1
+#          else otherSolution[i, j] <- 0
+#       }
+#    }
+# }
+
+set.seed(123)
+NS  <- nrow(other_solution) * ncol(other_solution)
+r   <- population_size - 1
+c   <- length(pred_vars_all)
+idx <- matrix(runif(NS), r, c, byrow = T) < (1.0 / c)
+x <- other_solution[idx]
+other_solution[idx] <- as.integer(xor(x, TRUE))
 
 ### initial population is generated with eliteSolution and otherSolution
-# init_pop <- rbind(eliteSolution, otherSolution)
+init_pop <- rbind(eliteSolution, otherSolution)
 
 ### genetic operations and parameters are set appropriately
 gaControl("binary" = list(selection = "gabin_tourSelection",
@@ -168,7 +182,7 @@ gaControl("binary" = list(selection = "gabin_tourSelection",
 ### genetic algorithm running
 run_GA <- ga(type = "binary",
              fitness = get_model,
-             # suggestions = initPop,
+             suggestions = init_pop,
              pmutation = ga_pmutation,
              popSize = population_size,
              maxiter = generation_num,
