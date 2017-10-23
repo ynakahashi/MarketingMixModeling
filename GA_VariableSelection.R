@@ -2,9 +2,11 @@
 library(GA)
 
 ### Parameters settings
-n_year     <- 4
-n_per_year <- 48 # 4 weeks * 12 months
-n          <- n_year * n_per_year
+n_year      <- 4
+n_per_year  <- 12
+n_per_month <- 4
+
+n          <- n_year * n_per_year * n_per_month
 mu         <- 4
 var_e      <- 0.5
 
@@ -23,6 +25,10 @@ lambda_05 <- 0.2
 pars <- c(n, mu, var_e, 
           beta_01, lambda_01, beta_02, lambda_02, beta_03, lambda_03,
           beta_04, lambda_04, beta_05, lambda_05)
+
+Month <- c("Jan", "Feb", "Mar", "Apr", "May", "Jun", 
+           "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+
           
 ### Generate simulation data
 simulate_y <- function(pars, seed = 123) {
@@ -62,9 +68,9 @@ simulate_y <- function(pars, seed = 123) {
    
    ## Create Year & Seasonality
    year_eff_all     <- rep(runif(n_year) , each = n_per_year)
-   seasonal_eff     <- sin(seq(from = -3, to = 3, length.out = n_per_year))
+   seasonal_eff     <- rep(sin(-2:9), each = 4)
    seasonal_eff_all <- rep(seasonal_eff, n_year)
-   
+
    ## Create residuals
    error <- rnorm(n, 0, sqrt(var_e))
    
@@ -87,7 +93,9 @@ simulate_y <- function(pars, seed = 123) {
       "X_04_Fil"   = X_04_fil,
       "X_05_Fil"   = X_05_fil,
       "Y_lag"      = dplyr::lag(y, 1),
-      "True_Error" = error)
+      "True_Error" = error,
+      "Year"       = rep(2001:(2001 + n_year - 1), each = n_per_year * n_per_month),
+      "Month"      = rep(rep(Month, each = n_per_month), n_year))
    return(dat)
 }
 
@@ -106,7 +114,8 @@ my_regression <- function(dat, pred_vars) {
 get_model <- function(x) {
    index_selected     <- which(x == 1, arr.ind = T)
    pred_vars_selected <- pred_vars_all[index_selected]
-   pred_vars <- c(fixed_vars, pred_vars_selected)
+   pred_vars          <- c(fixed_vars, pred_vars_selected)
+   
    mod <- my_regression(dat, pred_vars)
    return(1.0 / mod$aic)
 }
@@ -118,8 +127,8 @@ get_model <- function(x) {
 
 ### fixed variables ##############################
 fixed_vars <- list(
-   "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-   "Week_idx_02", "Week_idx_03", "Week_idx_04", "Week_idx_05", 
+   "Jan", "Feb", "Mar", "Apr", "May", "Jun", 
+   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
    "FiscalYearEnd", "GW", "OBON", "SW", "nenmatsunenshi",
    "NEWYEAR.DAYS", "HolidayNum", "TaxRateUp"
 )
@@ -135,15 +144,15 @@ population_size <- 20
 generation_num  <- 20
 
 ### elite solution (best found so far)
-eliteSolution <- c(1, 1, 1, 0, 0, 0, 0, 0, 1, 0)
+elite_solution <- c(1, 1, 1, 0, 0, 0, 0, 1, 0)
 
 ### similar solutions to eliteSolution
-otherSolution <- matrix(eliteSolution, population_size - 1, length(pred_vars_all),
-                        byrow = T)
-for (i in 1:(populationSize - 1)) {
-   for (j in 1:length(predVarsAll)) {
-      if (runif(1) < 1.0 / length(predVarsAll)) {
-         if (otherSolution[i, j] == 0) otherSolution[i, j] <- 1
+other_solution <- matrix(elite_solution, population_size - 1, length(pred_vars_all),
+                         byrow = T)
+for (i in 1:(population_size - 1)) {
+   for (j in 1:length(pred_vars_all)) {
+      if (runif(1) < 1.0 / length(pred_vars_all)) {
+         if (other_solution[i, j] == 0) other_solution[i, j] <- 1
          else otherSolution[i, j] <- 0
       }
    }
