@@ -96,29 +96,28 @@ dat  <- na.omit(simulate_y(pars))
 
 
 ### reg for GA ##############################
-regGA <- function(dat, pred_vars) {
-   var_names <- pred_vars
-   tmp       <- dat[, c("Y", var_names)]
-   model     <- lm(Y ~ ., tmp)
+my_regression <- function(dat, pred_vars) {
+   tmp       <- dat[, c("Y", pred_vars)]
+   model     <- glm(Y ~ ., tmp, family = "gaussian")
    return(model)
 }
 
 ### mod and ROI function ##############################
-getModRoi <- function(x) {
-   indexSelected    <- which(x == 1, arr.ind = T)
-   predVarsSelected <- predVarsAll[indexSelected]
-   predVars <- c(fixedVars, predVarsSelected)
-   mod <- regGA(datLrn, predVars)
+get_model <- function(x) {
+   index_selected     <- which(x == 1, arr.ind = T)
+   pred_vars_selected <- pred_vars_all[index_selected]
+   pred_vars <- c(fixed_vars, pred_vars_selected)
+   mod <- my_regression(dat, pred_vars)
+   return(1.0 / mod$aic)
 }
-
 
 ### AIC function ##############################
-getFitness <- function(x) {
-   return(1.0/mod$aic)
-}
+# get_AIC <- function(x) {
+#    return(1.0 / mod$aic)
+# }
 
 ### fixed variables ##############################
-fixedVars <- list(
+fixed_vars <- list(
    "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
    "Week_idx_02", "Week_idx_03", "Week_idx_04", "Week_idx_05", 
    "FiscalYearEnd", "GW", "OBON", "SW", "nenmatsunenshi",
@@ -126,50 +125,50 @@ fixedVars <- list(
 )
 
 ### variables to be optimized ##############################
-predVarsAll <- list(
+pred_vars_all <- list(
    "TV", "Digital", "Flyer", "Newspaper", "Magazine", "Radio",
    "Campaign_01", "Campaign_02", "Campaign_03"
 )
 
 ### initial settings for genetic algorithm
-Population_Size <- 20
-Generation_Num  <- 20
+population_size <- 20
+generation_num  <- 20
 
 ### elite solution (best found so far)
 eliteSolution <- c(0, 1, 0, 0, 0, 0, 0, 0, 0, 0,
-                   0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 
+                   0, 0, 0, 0, 0, 0, 0, 0, 1, 0,
                    0, 1, 0, 0, 0, 0, 0, 0, 0, 0,
-                   0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 
+                   0, 0, 1, 0, 0, 0, 0, 0, 0, 0,
                    0, 0, 0, 0, 0, 1)
 
 ### similar solutions to eliteSolution
-otherSolution <- matrix(eliteSolution, populationSize - 1, length(predVarsAll), 
-                        byrow = T)
-for (i in 1:(populationSize - 1)) {
-   for (j in 1:length(predVarsAll)) {
-      if (runif(1) < 1.0 / length(predVarsAll)) {
-         if (otherSolution[i, j] == 0) otherSolution[i, j] <- 1
-         else otherSolution[i, j] <- 0
-      }
-   }
-}
+# otherSolution <- matrix(eliteSolution, populationSize - 1, length(predVarsAll), 
+#                         byrow = T)
+# for (i in 1:(populationSize - 1)) {
+#    for (j in 1:length(predVarsAll)) {
+#       if (runif(1) < 1.0 / length(predVarsAll)) {
+#          if (otherSolution[i, j] == 0) otherSolution[i, j] <- 1
+#          else otherSolution[i, j] <- 0
+#       }
+#    }
+# }
 
 ### initial population is generated with eliteSolution and otherSolution
-initPop <- rbind(eliteSolution, otherSolution)
+# init_pop <- rbind(eliteSolution, otherSolution)
 
 ### genetic operations and parameters are set appropriately
 gaControl("binary" = list(selection = "gabin_tourSelection",
                           crossover = "gabin_uCrossover"))
 
 ### genetic algorithm running
-runGA <- ga(type = "binary",
-            fitness = getFitness,
-            suggestions = initPop,
-            pmutation = ga_pmutation,
-            popSize = populationSize,
-            maxiter = generationNum,
-            nBits = length(predVarsAll),
-            monitor = T)
+run_GA <- ga(type = "binary",
+             fitness = get_model,
+             # suggestions = initPop,
+             pmutation = ga_pmutation,
+             popSize = population_size,
+             maxiter = generation_num,
+             nBits = length(pred_vars_all),
+             monitor = T)
 
 ### summary shows up and the data is saved
 summary(runGA)
