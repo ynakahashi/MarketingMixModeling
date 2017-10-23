@@ -135,23 +135,19 @@ population_size <- 20
 generation_num  <- 20
 
 ### elite solution (best found so far)
-eliteSolution <- c(0, 1, 0, 0, 0, 0, 0, 0, 0, 0,
-                   0, 0, 0, 0, 0, 0, 0, 0, 1, 0,
-                   0, 1, 0, 0, 0, 0, 0, 0, 0, 0,
-                   0, 0, 1, 0, 0, 0, 0, 0, 0, 0,
-                   0, 0, 0, 0, 0, 1)
+eliteSolution <- c(1, 1, 1, 0, 0, 0, 0, 0, 1, 0)
 
 ### similar solutions to eliteSolution
-# otherSolution <- matrix(eliteSolution, populationSize - 1, length(predVarsAll), 
-#                         byrow = T)
-# for (i in 1:(populationSize - 1)) {
-#    for (j in 1:length(predVarsAll)) {
-#       if (runif(1) < 1.0 / length(predVarsAll)) {
-#          if (otherSolution[i, j] == 0) otherSolution[i, j] <- 1
-#          else otherSolution[i, j] <- 0
-#       }
-#    }
-# }
+otherSolution <- matrix(eliteSolution, population_size - 1, length(pred_vars_all),
+                        byrow = T)
+for (i in 1:(populationSize - 1)) {
+   for (j in 1:length(predVarsAll)) {
+      if (runif(1) < 1.0 / length(predVarsAll)) {
+         if (otherSolution[i, j] == 0) otherSolution[i, j] <- 1
+         else otherSolution[i, j] <- 0
+      }
+   }
+}
 
 ### initial population is generated with eliteSolution and otherSolution
 # init_pop <- rbind(eliteSolution, otherSolution)
