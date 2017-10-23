@@ -2,29 +2,35 @@
 library(GA)
 
 ### Parameters settings
-n_year      <- 4
-n_per_year  <- 12
-n_per_month <- 4
+n_year  <- 4
+n_month <- 12
+n_week  <- 4
 
-n          <- n_year * n_per_year * n_per_month
-mu         <- 4
-var_e      <- 0.5
+n       <- n_year * n_month * n_week
+mu      <- 4
+var_e   <- 0.5
 
-beta_01 <- 0.03
-beta_02 <- 0.05
-beta_03 <- 0.01
-beta_04 <- 0.01
-beta_05 <- 0.01
+b_TV    <- 0.03
+b_DG    <- 0.05 # Digital
+b_Flyer <- 0.01
+b_NP    <- 0.01 # Newspaper
+b_MG    <- 0.01 # Magazine
+b_Radio <- 0.01
 
-lambda_01 <- 0.8
-lambda_02 <- 0.5
-lambda_03 <- 0.3
-lambda_04 <- 0.3
-lambda_05 <- 0.2
+l_TV    <- 0.8
+l_DG    <- 0.5
+l_Flyer <- 0.3
+l_NP    <- 0.3
+l_MG    <- 0.2
+l_Radio <- 0.1
+
+b_Camp_01 <- 0.3
+b_Camp_02 <- 0.0
+b_Camp_03 <- 0.1
 
 pars <- c(n, mu, var_e, 
-          beta_01, lambda_01, beta_02, lambda_02, beta_03, lambda_03,
-          beta_04, lambda_04, beta_05, lambda_05)
+          b_TV, l_TV, b_DG, l_DG, b_Flyer, l_Flyer, b_NP, l_NP, b_MG, l_MG,
+          b_Radio, l_Radio, b_Camp_01, b_Camp_02, b_Camp_03)
 
 Month <- c("Jan", "Feb", "Mar", "Apr", "May", "Jun", 
            "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
@@ -48,6 +54,12 @@ simulate_y <- function(pars, seed = 123) {
    lambda_04 <- pars[11]
    beta_05   <- pars[12]
    lambda_05 <- pars[13]
+   beta_06   <- pars[14]
+   lambda_06 <- pars[15]
+   
+   beta_11   <- pars[16]
+   beta_12   <- pars[17]
+   beta_13   <- pars[18]
    
    ## Create true Ad-Stock variables
    X_01_raw <- rgamma(n, 3) * ifelse(runif(n) > 0.7, 0, 1)
@@ -64,6 +76,14 @@ simulate_y <- function(pars, seed = 123) {
 
    X_05_raw <- rgamma(n, 1) * ifelse(runif(n) > 0.5, 0, 1)
    X_05_fil <- stats::filter(X_05_raw, lambda_05, "recursive")
+
+   X_06_raw <- rgamma(n, 1) * ifelse(runif(n) > 0.2, 0, 1)
+   X_06_fil <- stats::filter(X_06_raw, lambda_06, "recursive")
+   
+   ## Create Campaign effect
+   X_11_raw <- rgamma(n, 1) * ifelse(runif(n) > 0.2, 0, 1)
+   X_12_raw <- rgamma(n, 1) * ifelse(runif(n) > 0.6, 0, 1)
+   X_13_raw <- rgamma(n, 1) * ifelse(runif(n) > 0.4, 0, 1)
    
    ## Create Year & Seasonality
    year_eff_all     <- rep(runif(n_year) , each = n_per_year)
@@ -76,26 +96,32 @@ simulate_y <- function(pars, seed = 123) {
    ## Create observations   
    y     <- mu + year_eff_all + seasonal_eff_all + 
       beta_01 * X_01_fil + beta_02 * X_02_fil + beta_03 * X_03_fil + 
-      beta_04 * X_04_fil + beta_05 * X_05_fil + error
+      beta_04 * X_04_fil + beta_05 * X_05_fil + beta_06 * X_06_fil + 
+      beta_11 * X_11_raw + beta_12 * X_12_raw + beta_13 * X_13_raw + Comp_error
    
    ## Return dataset
    dat <- data.frame(
-      "Y"          = y,
-      "X_01"       = X_01_raw,
-      "X_02"       = X_02_raw,
-      "X_03"       = X_03_raw,
-      "X_04"       = X_04_raw,
-      "X_05"       = X_05_raw,
-      "X_01_Fil"   = X_01_fil,
-      "X_02_Fil"   = X_02_fil,
-      "X_03_Fil"   = X_03_fil,
-      "X_04_Fil"   = X_04_fil,
-      "X_05_Fil"   = X_05_fil,
-      "Y_lag"      = dplyr::lag(y, 1),
-      "True_Error" = error,
-      "Year"       = paste0("Year_", rep(2001:(2001 + n_year - 1), each = n_per_year * n_per_month)),
-      "Month"      = factor(rep(rep(Month, each = n_per_month), n_year),
-                            levels = Month))
+      "Y"             = y,
+      "Year"          = paste0("Year_", rep(2001:(2001 + n_year - 1), each = n_per_year * n_per_month)),
+      "Month"         = factor(rep(rep(Month, each = n_per_month), n_year),
+                             levels = Month),
+      "TV"            = X_01_raw,
+      "Digital"       = X_02_raw,
+      "Flyer"         = X_03_raw,
+      "Newspaper"     = X_04_raw,
+      "Magazine"      = X_05_raw,
+      "Radio"         = X_05_raw,
+      "Campaign_01"   = X_11_raw,
+      "Campaign_02"   = X_12_raw,
+      "Campaign_03"   = X_13_raw,
+      "TV_Fil"        = X_01_fil,
+      "Digital_Fil"   = X_02_fil,
+      "Flyer_Fil"     = X_03_fil,
+      "Newspaper_Fil" = X_04_fil,
+      "Magazine_Fil"  = X_05_fil,
+      "Radio_Fil"     = X_06_fil,
+      "Y_lag"         = dplyr::lag(y, 1),
+      "True_Error"    = error)
    return(dat)
 }
 
@@ -113,7 +139,7 @@ dat_Ana <- data.frame(cbind(
 
 ### reg for GA ##############################
 my_regression <- function(dat, pred_vars) {
-   tmp       <- dat[, c("Y", pred_vars)]
+   tmp       <- dat[, c("y", pred_vars)]
    model     <- glm(Y ~ ., tmp, family = "gaussian")
    return(model)
 }
@@ -134,12 +160,12 @@ get_model <- function(x) {
 # }
 
 ### fixed variables ##############################
-fixed_vars <- list(
+fixed_vars <- c(
    "Year_2001", "Year_2002", "Year_2003", "Year_2004", 
    "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 
 ### variables to be optimized ##############################
-pred_vars_all <- list(
+pred_vars_all <- c(
    "TV", "Digital", "Flyer", "Newspaper", "Magazine", "Radio",
    "Campaign_01", "Campaign_02", "Campaign_03"
 )
