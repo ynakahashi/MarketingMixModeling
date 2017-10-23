@@ -10,12 +10,12 @@ n       <- n_year * n_month * n_week
 mu      <- 4
 var_e   <- 0.5
 
-b_TV    <- 0.03
-b_DG    <- 0.05 # Digital
-b_Flyer <- 0.01
-b_NP    <- 0.01 # Newspaper
-b_MG    <- 0.01 # Magazine
-b_Radio <- 0.01
+b_TV    <- 0.50
+b_DG    <- 0.35 # Digital
+b_Flyer <- 0.20
+b_NP    <- 0.00 # Newspaper
+b_MG    <- 0.00 # Magazine
+b_Radio <- 0.00
 
 l_TV    <- 0.8
 l_DG    <- 0.5
@@ -26,7 +26,7 @@ l_Radio <- 0.1
 
 b_Camp_01 <- 0.3
 b_Camp_02 <- 0.0
-b_Camp_03 <- 0.1
+b_Camp_03 <- 0.4
 
 pars <- c(n, mu, var_e, 
           b_TV, l_TV, b_DG, l_DG, b_Flyer, l_Flyer, b_NP, l_NP, b_MG, l_MG,
@@ -81,13 +81,13 @@ simulate_y <- function(pars, seed = 123) {
    X_06_fil <- stats::filter(X_06_raw, lambda_06, "recursive")
    
    ## Create Campaign effect
-   X_11_raw <- rgamma(n, 1) * ifelse(runif(n) > 0.2, 0, 1)
-   X_12_raw <- rgamma(n, 1) * ifelse(runif(n) > 0.6, 0, 1)
-   X_13_raw <- rgamma(n, 1) * ifelse(runif(n) > 0.4, 0, 1)
+   X_11_raw <- ifelse(runif(n) > 0.2, 0, 1)
+   X_12_raw <- ifelse(runif(n) > 0.6, 0, 1)
+   X_13_raw <- ifelse(runif(n) > 0.4, 0, 1)
    
    ## Create Year & Seasonality
-   year_eff_all     <- rep(runif(n_year) , each = n_per_year)
-   seasonal_eff     <- rep(sin(-2:9), each = 4)
+   year_eff_all     <- rep(runif(n_year) , each = n_month * n_week)
+   seasonal_eff     <- rep(sin(-2:9), each = n_week)
    seasonal_eff_all <- rep(seasonal_eff, n_year)
 
    ## Create residuals
@@ -95,33 +95,40 @@ simulate_y <- function(pars, seed = 123) {
    
    ## Create observations   
    y     <- mu + year_eff_all + seasonal_eff_all + 
-      beta_01 * X_01_fil + beta_02 * X_02_fil + beta_03 * X_03_fil + 
-      beta_04 * X_04_fil + beta_05 * X_05_fil + beta_06 * X_06_fil + 
-      beta_11 * X_11_raw + beta_12 * X_12_raw + beta_13 * X_13_raw + Comp_error
+      beta_01 * X_01_raw + beta_02 * X_02_raw + beta_03 * X_03_raw + 
+      beta_04 * X_04_raw + beta_05 * X_05_raw + beta_06 * X_06_raw + 
+      beta_11 * X_11_raw + beta_12 * X_12_raw + beta_13 * X_13_raw + error
+   
+   # y     <- mu + year_eff_all + seasonal_eff_all + 
+   #    beta_01 * X_01_fil + beta_02 * X_02_fil + beta_03 * X_03_fil + 
+   #    beta_04 * X_04_fil + beta_05 * X_05_fil + beta_06 * X_06_fil + 
+   #    beta_11 * X_11_raw + beta_12 * X_12_raw + beta_13 * X_13_raw + error
    
    ## Return dataset
    dat <- data.frame(
-      "Y"             = y,
-      "Year"          = paste0("Year_", rep(2001:(2001 + n_year - 1), each = n_per_year * n_per_month)),
-      "Month"         = factor(rep(rep(Month, each = n_per_month), n_year),
-                             levels = Month),
-      "TV"            = X_01_raw,
-      "Digital"       = X_02_raw,
-      "Flyer"         = X_03_raw,
-      "Newspaper"     = X_04_raw,
-      "Magazine"      = X_05_raw,
-      "Radio"         = X_05_raw,
-      "Campaign_01"   = X_11_raw,
-      "Campaign_02"   = X_12_raw,
-      "Campaign_03"   = X_13_raw,
-      "TV_Fil"        = X_01_fil,
-      "Digital_Fil"   = X_02_fil,
-      "Flyer_Fil"     = X_03_fil,
-      "Newspaper_Fil" = X_04_fil,
-      "Magazine_Fil"  = X_05_fil,
-      "Radio_Fil"     = X_06_fil,
-      "Y_lag"         = dplyr::lag(y, 1),
-      "True_Error"    = error)
+      "Y"              = y,
+      "Year"           = paste0("Year_", rep(2001:(2001 + n_year - 1), each = n_month * n_week)),
+      "Month"          = factor(rep(rep(Month, each = n_week), n_year),
+                                levels = Month),
+      "TV"             = X_01_raw,
+      "Digital"        = X_02_raw,
+      "Flyer"          = X_03_raw,
+      "Newspaper"      = X_04_raw,
+      "Magazine"       = X_05_raw,
+      "Radio"          = X_06_raw,
+      "Campaign_01"    = X_11_raw,
+      "Campaign_02"    = X_12_raw,
+      "Campaign_03"    = X_13_raw,
+      "TV_Fil"         = X_01_fil,
+      "Digital_Fil"    = X_02_fil,
+      "Flyer_Fil"      = X_03_fil,
+      "Newspaper_Fil"  = X_04_fil,
+      "Magazine_Fil"   = X_05_fil,
+      "Radio_Fil"      = X_06_fil,
+      "Y_lag"          = dplyr::lag(y, 1),
+      "True_Year_Eff"  = year_eff_all,
+      "True_Month_Eff" = seasonal_eff_all,
+      "True_Error"     = error)
    return(dat)
 }
 
@@ -130,16 +137,15 @@ dat  <- na.omit(simulate_y(pars))
 dat_Year  <- psych::dummy.code(dat$Year)
 dat_Month <- psych::dummy.code(dat$Month)
 
-dat_Ana <- data.frame(cbind(
+dat_dummy <- data.frame(cbind(
    dat[, -which(colnames(dat) %in% c("Year", "Month"))],
    dat_Year,
    dat_Month))
 
 
-
 ### reg for GA ##############################
 my_regression <- function(dat, pred_vars) {
-   tmp       <- dat[, c("y", pred_vars)]
+   tmp       <- dat[, c("Y", pred_vars)]
    model     <- glm(Y ~ ., tmp, family = "gaussian")
    return(model)
 }
@@ -150,14 +156,9 @@ get_model <- function(x) {
    pred_vars_selected <- pred_vars_all[index_selected]
    pred_vars          <- c(fixed_vars, pred_vars_selected)
    
-   mod <- my_regression(dat, pred_vars)
+   mod <- my_regression(dat_Ana, pred_vars)
    return(1.0 / mod$aic)
 }
-
-### AIC function ##############################
-# get_AIC <- function(x) {
-#    return(1.0 / mod$aic)
-# }
 
 ### fixed variables ##############################
 fixed_vars <- c(
@@ -170,25 +171,20 @@ pred_vars_all <- c(
    "Campaign_01", "Campaign_02", "Campaign_03"
 )
 
+### data for analysis
+dat_Ana <- dat_dummy[, c("Y", fixed_vars, pred_vars_all)]
+
 ### initial settings for genetic algorithm
-population_size <- 20
-generation_num  <- 20
+population_size <- 50
+generation_num  <- 200
 
 ### elite solution (best found so far)
-elite_solution <- c(1, 1, 1, 0, 0, 0, 0, 1, 0)
+elite_solution <- c(1, 1, 1, 0, 0, 0, 1, 0, 1)
 
 ### similar solutions to eliteSolution
 other_solution <- matrix(elite_solution, population_size - 1, length(pred_vars_all),
                          byrow = T)
 
-# for (i in 1:(population_size - 1)) {
-#    for (j in 1:length(pred_vars_all)) {
-#       if (runif(1) < 1.0 / length(pred_vars_all)) {
-#          if (other_solution[i, j] == 0) other_solution[i, j] <- 1
-#          else otherSolution[i, j] <- 0
-#       }
-#    }
-# }
 
 set.seed(123)
 NS  <- nrow(other_solution) * ncol(other_solution)
@@ -206,21 +202,24 @@ gaControl("binary" = list(selection = "gabin_tourSelection",
                           crossover = "gabin_uCrossover"))
 
 ### genetic algorithm running
-run_GA <- ga(type = "binary",
-             fitness = get_model,
+run_GA <- ga(type        = "binary",
+             fitness     = get_model,
              suggestions = init_pop,
-             pmutation = ga_pmutation,
-             popSize = population_size,
-             maxiter = generation_num,
-             nBits = length(pred_vars_all),
-             monitor = T)
+             pmutation   = ga_pmutation,
+             popSize     = population_size,
+             maxiter     = generation_num,
+             nBits       = length(pred_vars_all),
+             monitor     = T)
 
-### summary shows up and the data is saved
-summary(runGA)
-opt_indexselected <- which(runGA@solution[1,] == 1, arr.ind = T)
-opt_predVarsSelected <- predVarsAll[opt_indexselected]
-opt_fitness <- runGA@fitnessValue
-opt_aic <- 1.0 / opt_fitness
-opt_ModRoi <- getModRoi(runGA@solution[1,])
-opt_result <- list(opt_predVarsSelected, opt_aic, opt_ModRoi[1][[1]], opt_ModRoi[2][[1]])
-save(opt_result, file="GA_SizePopXXX_NumGenXXX.Rdata")
+sum(run_GA@solution == elite_solution)
+
+dat_Tmp <- dat_Ana[, c("Y", fixed_vars, pred_vars_all[run_GA@solution == 1])]
+res_Tmp <- lm(Y ~ ., dat_Tmp)
+coef(res_Tmp)
+plot(coef(res_Tmp)[2:4], 
+     (unique(dat$True_Year_Eff) - unique(dat$True_Year_Eff)[4])[-4])
+plot(coef(res_Tmp)[6:16], 
+     (unique(dat$True_Month_Eff) - unique(dat$True_Month_Eff)[12])[-12])
+
+
+
