@@ -216,10 +216,12 @@ sum(run_GA@solution == elite_solution)
 dat_Tmp <- dat_Ana[, c("Y", fixed_vars, pred_vars_all[run_GA@solution == 1])]
 res_Tmp <- lm(Y ~ ., dat_Tmp)
 coef(res_Tmp)
-plot(coef(res_Tmp)[2:4], 
-     (unique(dat$True_Year_Eff) - unique(dat$True_Year_Eff)[4])[-4])
-plot(coef(res_Tmp)[6:16], 
-     (unique(dat$True_Month_Eff) - unique(dat$True_Month_Eff)[12])[-12])
-
-
-
+plot((unique(dat$True_Year_Eff) - unique(dat$True_Year_Eff)[4])[-4],
+     coef(res_Tmp)[2:4])
+abline(a = 0, b = 1, col = "red", lty = 2)
+plot((unique(dat$True_Month_Eff) - unique(dat$True_Month_Eff)[12])[-12],
+     coef(res_Tmp)[6:16])
+abline(a = 0, b = 1, col = "red", lty = 2)
+plot(c(b_TV, b_DG, b_Flyer, b_Camp_01, b_Camp_02, b_Camp_03),
+     coef(res_Tmp)[18:23])
+abline(a = 0, b = 1, col = "red", lty = 2)
