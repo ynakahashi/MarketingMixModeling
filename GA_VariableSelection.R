@@ -80,7 +80,12 @@ Create_Filtered_Vars <- function(pars, dat = Dat_Ori) {
 ## Return Variable Index
 ## Input  : Lambda Table
 ## Output : Variable Index
-Update_Variable_Index <- function(Lambda_Table, Pop_Size, Gen_N) {
+Update_Variable_Index <- function(Lambda_Table, Pop_Size = 20, Gen_N = 100) {
+
+   ### Create filter-ed variable
+   Dat_Tmp <- Create_Filtered_Vars(Lambda_Table)
+   
+   ### Set options for GA
    Population_Size <- Pop_Size
    Generation_Num  <- Gen_N
    
@@ -108,24 +113,25 @@ Update_Variable_Index <- function(Lambda_Table, Pop_Size, Gen_N) {
    
    ### genetic algorithm running
    run_GA <- ga(type        = "binary",
-                fitness     = get_model,
+                fitness     = Return_AIC_GA,
                 suggestions = Init_Pop,
                 pmutation   = ga_pmutation,
                 popSize     = Population_Size,
                 maxiter     = Generation_Num,
                 nBits       = length(Candidate_Vars),
-                monitor     = T)
-
+                monitor     = T,
+                Lambda_Table = Lambda_Table)
 }
 
 
 ## Return AIC under given Variable Index & lambda (Objective function)
 ## Input  : Variable Index, Lambda values
 ## Output : AIC value
-Return_AIC_GA <- function(x, Lambda_Table) {
+Return_AIC_GA <- function(x, Lambda_Table = Lambda_Table) {
    Index_Selected     <- which(x == 1, arr.ind = T)
    Pred_Vars_Selected <- Candidate_Vars[Index_Selected]
-   Pred_Vars          <- c(Fixed_Vars, Pred_Vars_Selected)
+   # Pred_Vars          <- c(Fixed_Vars, Pred_Vars_Selected)
+   Pred_Vars          <- c(Pred_Vars_Selected)
    Lambda <- Lambda_Table[which(names(Lambda_Table) %in% Pred_Vars_Selected)]
    
    Return_AIC(Lambda)
@@ -157,14 +163,17 @@ Lambda_Table        <- c(l1, l2, l3, l4, l5)
 names(Lambda_Table) <- colnames(Dat_Try)
 
 Dat_Fil <- Create_Filtered_Vars(Lambda_Table, dat = Dat_Try)
-head(Dat_Try)
-head(Dat_Fil)
+# head(Dat_Try)
+# head(Dat_Fil)
 
 Dat_Try$Y <- as.matrix(cbind(1, Dat_Fil)) %*% bs + rnorm(100)
 Dat_Ori <- Dat_Try
 
-Var_Idx <- c(1, 0, 1, 0, 1)
+## 
+Var_Idx      <- rep(1, 5)
 Lambda_Table <- Update_Lambda_Table(Var_Idx)
+Res_GA       <- Update_Variable_Index(Lambda_Table)
+Var_Idx      <- Res_GA@solution[1, ]
 
 
 ################################################################################
