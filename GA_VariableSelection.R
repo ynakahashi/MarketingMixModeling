@@ -23,27 +23,54 @@ library(GA)
 ## Update lambda values(Ad-stock rate)
 ## Input  : Variable Index (Indicates Include / Exclude)
 ## Output : Updated Lambda table under given Variable Index
-Update_Lambda_Table <- function(Var_Idx) {
+Update_Lambda_Table <- function(Var_Idx, opt_method) {
 
    ## Select target variable & their lambda  
    Vars    <- Candidate_Vars[Var_Idx == 1]
    Lambda  <- Lambda_Table[which(names(Lambda_Table) %in% Vars)]
    
-   ## Optimize lambda
-   pars    <- optim(par = Lambda, 
-                    fn = Return_AIC, 
-                    method = "L-BFGS-B", 
-                    lower = rep(0, length(Lambda)),
-                    upper = rep(1, length(Lambda)))$par
-   Res     <- optim(par = pars, 
-                    fn = Return_AIC,
-                    method = "L-BFGS-B", 
-                    lower = rep(0, length(Lambda)),
-                    upper = rep(1, length(Lambda)))
+   ## Optimize lamabda
+   if (opt_method == "optim") {
+      
+      ## by optim
+      Values  <- optim(par = Lambda, 
+                       fn = Return_AIC, 
+                       method = "L-BFGS-B", 
+                       lower = rep(0, length(Lambda)),
+                       upper = rep(1, length(Lambda)))$par
+      Values  <- optim(par = Values, 
+                       fn = Return_AIC,
+                       method = "L-BFGS-B", 
+                       lower = rep(0, length(Lambda)),
+                       upper = rep(1, length(Lambda)))
+      
+      ## Return updated lambda
+      Res     <- Values$par 
+      
+   } else {
+      
+      ## by GA
+      Population_Size <- 20
+      Generation_Num  <- 100
+      Values  <- ga(type = 'real-valued', 
+                    min = rep(0, length(Lambda)), 
+                    max = rep(1, length(Lambda)),
+                    popSize = Population_Size, 
+                    maxiter = Generation_Num, 
+                    pmutation   = ga_pmutation,
+                    names = Vars,
+                    keepBest = T, 
+                    monitor  = F,
+                    fitness = Return_AIC)
+      
+      ## Return updated lambda
+      Res     <- apply(Values@solution, 2, median)
+      
+   }
    
    ## Return updated lambda
    Lambda_Up <- Lambda_Table
-   Lambda_Up[which(names(Lambda_Up) %in% Vars)] <- Res$par
+   Lambda_Up[which(names(Lambda_Up) %in% Vars)] <- Res
    return(Lambda_Up)
 }
 
@@ -52,7 +79,7 @@ Update_Lambda_Table <- function(Var_Idx) {
 ## Input  : Lambda values
 ## Output : AIC value
 Return_AIC <- function(pars) {
-   Dat_Tmp <- Create_Filtered_Vars(pars)
+   Dat_Tmp <- Create_Filtered_Vars(pars, Dat_Ori)
    mod     <- glm(Y ~ ., data = Dat_Tmp, family = "gaussian")
    return(-mod$aic)
 }
@@ -66,10 +93,10 @@ Create_Filtered_Vars <- function(pars, dat = Dat_Ori) {
    len         <- length(pars)
    Target_Vars <- names(pars)
 
-   Out <- c()
    for (i in 1:len) {
       Var <- Target_Vars[i]
-      Fil <- stats::filter(Dat_Tmp[Var], pars[i], "recursive")
+      # if (is.na(Var)) next
+      Fil <- stats::filter(Dat_Tmp[, Var], pars[i], "recursive")
       Dat_Tmp[Var] <- Fil
    }
    
@@ -96,14 +123,18 @@ Update_Variable_Index <- function(Lambda_Table, Pop_Size = 20, Gen_N = 100) {
    Other_Sol <- matrix(Elite_Sol, Population_Size - 1, length(Candidate_Vars),
                        byrow = T)
    
-   set.seed(123)
+   # set.seed(123)
    NS  <- prod(dim(Other_Sol))
    r   <- Population_Size - 1
    c   <- length(Candidate_Vars)
    idx <- matrix(runif(NS), r, c, byrow = T) < (1.0 / c)
    x   <- Other_Sol[idx]
    Other_Sol[idx] <- as.integer(xor(x, TRUE))
-   
+
+   if (any(rowSums(Other_Sol) == 0)) {
+      Other_Sol[rowSums(Other_Sol) == 0, ] <- as.integer(runif(c) < 0.8)
+   }
+      
    ### initial population is generated with eliteSolution and otherSolution
    Init_Pop <- rbind(Elite_Sol, Other_Sol)
    
@@ -112,15 +143,18 @@ Update_Variable_Index <- function(Lambda_Table, Pop_Size = 20, Gen_N = 100) {
                              crossover = "gabin_uCrossover"))
    
    ### genetic algorithm running
-   run_GA <- ga(type        = "binary",
-                fitness     = Return_AIC_GA,
-                suggestions = Init_Pop,
-                pmutation   = ga_pmutation,
-                popSize     = Population_Size,
-                maxiter     = Generation_Num,
-                nBits       = length(Candidate_Vars),
-                monitor     = T,
-                Lambda_Table = Lambda_Table)
+   Variable_Index <- ga(type        = "binary",
+                        fitness     = Return_AIC_GA,
+                        suggestions = Init_Pop,
+                        pmutation   = ga_pmutation,
+                        popSize     = Population_Size,
+                        maxiter     = Generation_Num,
+                        nBits       = length(Candidate_Vars),
+                        monitor     = T,
+                        keepBest    = T,
+                        Lambda_Table = Lambda_Table)
+   
+   return(Variable_Index@solution)
 }
 
 
@@ -128,30 +162,25 @@ Update_Variable_Index <- function(Lambda_Table, Pop_Size = 20, Gen_N = 100) {
 ## Input  : Variable Index, Lambda values
 ## Output : AIC value
 Return_AIC_GA <- function(x, Lambda_Table = Lambda_Table) {
-   Index_Selected     <- which(x == 1, arr.ind = T)
-   Pred_Vars_Selected <- Candidate_Vars[Index_Selected]
-   # Pred_Vars          <- c(Fixed_Vars, Pred_Vars_Selected)
-   Pred_Vars          <- c(Pred_Vars_Selected)
-   Lambda <- Lambda_Table[which(names(Lambda_Table) %in% Pred_Vars_Selected)]
+
+   Vars      <- Candidate_Vars[x == 1]
+   # Pred_Vars          <- c(Fixed_Vars, Vars)
+   Pred_Vars <- c(Vars)
+   Lambda    <- Lambda_Table[which(names(Lambda_Table) %in% Pred_Vars)]
    
    Return_AIC(Lambda)
 }
 
 
-
-# Dat_Ori              <- iris[, -5]
-# colnames(Dat_Ori)[1] <- "Y"
-# Candidate_Vars       <- colnames(Dat_Ori)[2:4]
-# Lambda_Table         <- rep(0.5, 3)
-# names(Lambda_Table)  <- Candidate_Vars
-# Var_Idx              <- c(1, 1, 0)
-
+myprintf <- function(fmt, ...) {
+   cat(sprintf(fmt, ...))
+}
 
 ################################################################################
 ## Try using sample data
 ################################################################################
 ## Initial values
-set.seed(123)
+set.seed(456)
 X1 <- runif(100); X2 <- runif(100); X3 <- runif(100); X4 <- runif(100); X5 <- runif(100);
 l1 <- 0.4; l2 <- 0.3; l3 <- 0.2; l4 <- 0.5; l5 <- 0.7
 b1 <- 0.5; b2 <- 0.8; b3 <- 0.3; b4 <- 0.2; b5 <- 0.6
@@ -162,18 +191,33 @@ Candidate_Vars      <- colnames(Dat_Try)
 Lambda_Table        <- c(l1, l2, l3, l4, l5)
 names(Lambda_Table) <- colnames(Dat_Try)
 
-Dat_Fil <- Create_Filtered_Vars(Lambda_Table, dat = Dat_Try)
-# head(Dat_Try)
-# head(Dat_Fil)
-
+Dat_Fil   <- Create_Filtered_Vars(Lambda_Table, dat = Dat_Try)
 Dat_Try$Y <- as.matrix(cbind(1, Dat_Fil)) %*% bs + rnorm(100)
-Dat_Ori <- Dat_Try
+Dat_Ori   <- Dat_Try
+
 
 ## 
-Var_Idx      <- rep(1, 5)
-Lambda_Table <- Update_Lambda_Table(Var_Idx)
-Res_GA       <- Update_Variable_Index(Lambda_Table)
-Var_Idx      <- Res_GA@solution[1, ]
+Lambda_Table        <- rep(0.2, length(Candidate_Vars))
+names(Lambda_Table) <- colnames(Dat_Try)[1:length(Candidate_Vars)]
+Var_Idx             <- rep(1, length(Candidate_Vars))
+AIC_Old             <- -200
+for (i in 1:3) {
+   # cat("\n")
+   AIC_Old      <- AIC_New
+   myprintf("Update Lambda Table: %i", i)
+   Lambda_Table <- Update_Lambda_Table(Var_Idx, opt_method = "optim")
+   myprintf(" ... Complete \n")
+   myprintf("Update Variable Index: %i", i)
+   Res_GA       <- Update_Variable_Index(Lambda_Table)
+   myprintf(" ... Complete \n")
+   Var_Idx      <- Res_GA@solution
+   AIC_New      <- Res_GA@fitnessValue
+   myprintf("Lambda Table: %f \n", Lambda_Table)
+   myprintf("Selected Variable: %i \n", Var_Idx)
+   myprintf("\n AIC_New - AIC_Old: %f \n", (AIC_New - AIC_Old))
+}
+
+
 
 
 ################################################################################
