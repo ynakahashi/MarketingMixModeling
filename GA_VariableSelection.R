@@ -21,22 +21,28 @@ library(GA)
 ## Create functions
 ################################################################################
 ## Update lambda values(Ad-stock rate)
-Update_Lambda <- function(Var_Idx) {
+Update_Lambda_Table <- function(Var_Idx) {
 
    ## Select target variable & their lambda  
    Vars    <- Candidate_Vars[Var_Idx == 1]
    Lambda  <- Lambda_Table[which(names(Lambda_Table) %in% Vars)]
    
    ## Optimize lambda
-   # Dat_tmp <- Dat[c("Y", Fixed_Vars, Vars)]
-   pars    <- optim(par = Lambda, fn = Return_AIC, 
-                    method = "L-BFGS-B", lower = rep(0, length(Lambda)))
-   Res     <- optim(par = pars, fn = Return_AIC,
-                    method = "L-BFGS-B", lower = rep(0, length(Lambda)))
+   pars    <- optim(par = Lambda, 
+                    fn = Return_AIC, 
+                    method = "L-BFGS-B", 
+                    lower = rep(0, length(Lambda)),
+                    upper = rep(1, length(Lambda)))$par
+   Res     <- optim(par = pars, 
+                    fn = Return_AIC,
+                    method = "L-BFGS-B", 
+                    lower = rep(0, length(Lambda)),
+                    upper = rep(1, length(Lambda)))
    
    ## Return updated lambda
-   return(list("Updated_Variables" = Vars, 
-               "Lambda" = Res$par))
+   Lambda_Up <- Lambda_Table
+   Lambda_Up[which(names(Lambda_Up) %in% Vars)] <- Res$par
+   return(Lambda_Up)
 }
 
 
@@ -49,11 +55,10 @@ Return_AIC <- function(pars) {
 
 ## Create filter-ed variable
 Create_Filtered_Vars <- function(pars, dat = Dat_Ori) {
-   
+
    Dat_Tmp     <- dat
-   nc          <- ncol(Dat_Tmp)
    len         <- length(pars)
-   Target_Vars <- Candidate_Vars[Var_Idx == 1]
+   Target_Vars <- names(pars)
 
    Out <- c()
    for (i in 1:len) {
@@ -66,22 +71,44 @@ Create_Filtered_Vars <- function(pars, dat = Dat_Ori) {
 }
 
 
-pars <- rep(0.5, 3)
-
-Dat_Out <- Create_Filtered_Vars(pars)
-
+# Dat_Ori              <- iris[, -5]
+# colnames(Dat_Ori)[1] <- "Y"
+# Candidate_Vars       <- colnames(Dat_Ori)[2:4]
+# Lambda_Table         <- rep(0.5, 3)
+# names(Lambda_Table)  <- Candidate_Vars
+# Var_Idx              <- c(1, 1, 0)
 
 
 ################################################################################
 ## Try using sample data
 ################################################################################
 ## Initial values
-Dat_Ori              <- iris[, -5]
-colnames(Dat_Ori)[1] <- "Y"
-Candidate_Vars       <- colnames(Dat_Ori)[2:4]
-Lambda_Table         <- rep(0.5, 3)
-names(Lambda_Table)  <- Candidate_Vars
-Var_Idx              <- c(1, 1, 0)
+set.seed(123)
+X1 <- runif(100); X2 <- runif(100); X3 <- runif(100); X4 <- runif(100); X5 <- runif(100);
+l1 <- 0.4; l2 <- 0.3; l3 <- 0.2; l4 <- 0.5; l5 <- 0.7
+b1 <- 0.5; b2 <- 0.8; b3 <- 0.3; b4 <- 0.2; b5 <- 0.6
+bs <- c(3, b1, b2, b3, b4, b5)
+
+Dat_Try             <- data.frame(cbind(X1, X2, X3, X4, X5))
+Candidate_Vars      <- colnames(Dat_Try)
+Lambda_Table        <- c(l1, l2, l3, l4, l5)
+names(Lambda_Table) <- colnames(Dat_Try)
+
+Dat_Fil <- Create_Filtered_Vars(pars, rep(1, 5), dat = Dat_Try)
+head(Dat_Try)
+head(Dat_Fil)
+
+Dat_Try$Y <- as.matrix(cbind(1, Dat_Fil)) %*% bs + rnorm(100)
+Dat_Ori <- Dat_Try
+
+Var_Idx <- c(1, 0, 0, 0, 1)
+Lambda  <- Lambda_Table[Var_Idx == 1]
+
+Create_Filtered_Vars(Lambda)
+Return_AIC(Lambda)
+res <- Update_Lambda_Table(Var_Idx)
+Var_Idx <- as.integer(res)
+res <- Update_Lambda(res, Var_Idx = Var_Idx, dat = Dat_Ori)$Lambda
 
 ################################################################################
 ## Try using simulated data
