@@ -16,17 +16,72 @@
 ## Load libraries
 library(GA)
 
+
 ################################################################################
 ## Create functions
 ################################################################################
+## Update lambda values(Ad-stock rate)
+Update_Lambda <- function(Var_Idx) {
 
+   ## Select target variable & their lambda  
+   Vars    <- Candidate_Vars[Var_Idx == 1]
+   Lambda  <- Lambda_Table[which(names(Lambda_Table) %in% Vars)]
+   
+   ## Optimize lambda
+   # Dat_tmp <- Dat[c("Y", Fixed_Vars, Vars)]
+   pars    <- optim(par = Lambda, fn = Return_AIC, 
+                    method = "L-BFGS-B", lower = rep(0, length(Lambda)))
+   Res     <- optim(par = pars, fn = Return_AIC,
+                    method = "L-BFGS-B", lower = rep(0, length(Lambda)))
+   
+   ## Return updated lambda
+   return(list("Updated_Variables" = Vars, 
+               "Lambda" = Res$par))
+}
+
+
+## Return AIC under given lambda
+Return_AIC <- function(pars) {
+   Dat_Tmp <- Create_Filtered_Vars(pars)
+   mod     <- glm(Y ~ ., data = Dat_Tmp, family = "gaussian")
+   return(-mod$aic)
+}
+
+## Create filter-ed variable
+Create_Filtered_Vars <- function(pars, dat = Dat_Ori) {
+   
+   Dat_Tmp     <- dat
+   nc          <- ncol(Dat_Tmp)
+   len         <- length(pars)
+   Target_Vars <- Candidate_Vars[Var_Idx == 1]
+
+   Out <- c()
+   for (i in 1:len) {
+      Var <- Target_Vars[i]
+      Fil <- stats::filter(Dat_Tmp[Var], pars[i], "recursive")
+      Dat_Tmp[Var] <- Fil
+   }
+   
+   return(Dat_Tmp)
+}
+
+
+pars <- rep(0.5, 3)
+
+Dat_Out <- Create_Filtered_Vars(pars)
 
 
 
 ################################################################################
 ## Try using sample data
 ################################################################################
-
+## Initial values
+Dat_Ori              <- iris[, -5]
+colnames(Dat_Ori)[1] <- "Y"
+Candidate_Vars       <- colnames(Dat_Ori)[2:4]
+Lambda_Table         <- rep(0.5, 3)
+names(Lambda_Table)  <- Candidate_Vars
+Var_Idx              <- c(1, 1, 0)
 
 ################################################################################
 ## Try using simulated data
