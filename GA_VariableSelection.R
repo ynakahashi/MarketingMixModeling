@@ -131,10 +131,10 @@ Update_Variable_Index <- function(Lambda_Table, Pop_Size = 20, Gen_N = 100) {
    x   <- Other_Sol[idx]
    Other_Sol[idx] <- as.integer(xor(x, TRUE))
 
-   if (any(rowSums(Other_Sol) == 0)) {
-      Other_Sol[rowSums(Other_Sol) == 0, ] <- as.integer(runif(c) < 0.8)
-   }
-      
+   # if (any(rowSums(Other_Sol) == 0)) {
+   #    Other_Sol[rowSums(Other_Sol) == 0, ] <- as.integer(runif(c) < 0.8)
+   # }
+
    ### initial population is generated with eliteSolution and otherSolution
    Init_Pop <- rbind(Elite_Sol, Other_Sol)
    
@@ -154,7 +154,7 @@ Update_Variable_Index <- function(Lambda_Table, Pop_Size = 20, Gen_N = 100) {
                         keepBest    = T,
                         Lambda_Table = Lambda_Table)
    
-   return(Variable_Index@solution)
+   summary(Variable_Index)$solution[1, ]
 }
 
 
@@ -163,6 +163,9 @@ Update_Variable_Index <- function(Lambda_Table, Pop_Size = 20, Gen_N = 100) {
 ## Output : AIC value
 Return_AIC_GA <- function(x, Lambda_Table = Lambda_Table) {
 
+   if (sum(x) == 0) {
+      x <- as.integer(runif(length(x)) > 0.2)
+   }
    Vars      <- Candidate_Vars[x == 1]
    # Pred_Vars          <- c(Fixed_Vars, Vars)
    Pred_Vars <- c(Vars)
@@ -200,7 +203,8 @@ Dat_Ori   <- Dat_Try
 Lambda_Table        <- rep(0.2, length(Candidate_Vars))
 names(Lambda_Table) <- colnames(Dat_Try)[1:length(Candidate_Vars)]
 Var_Idx             <- rep(1, length(Candidate_Vars))
-AIC_Old             <- -200
+AIC_New             <- -200
+
 for (i in 1:3) {
    # cat("\n")
    AIC_Old      <- AIC_New
