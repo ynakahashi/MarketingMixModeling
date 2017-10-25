@@ -21,6 +21,8 @@ library(GA)
 ## Create functions
 ################################################################################
 ## Update lambda values(Ad-stock rate)
+## Input  : Variable Index (Indicates Include / Exclude)
+## Output : Updated Lambda table under given Variable Index
 Update_Lambda_Table <- function(Var_Idx) {
 
    ## Select target variable & their lambda  
@@ -46,7 +48,9 @@ Update_Lambda_Table <- function(Var_Idx) {
 }
 
 
-## Return AIC under given lambda
+## Return AIC under given lambda (Objective function)
+## Input  : Lambda values
+## Output : AIC value
 Return_AIC <- function(pars) {
    Dat_Tmp <- Create_Filtered_Vars(pars)
    mod     <- glm(Y ~ ., data = Dat_Tmp, family = "gaussian")
@@ -54,6 +58,8 @@ Return_AIC <- function(pars) {
 }
 
 ## Create filter-ed variable
+## Input  : Lambda values
+## Output : Data with filter-ed variables by given lambda
 Create_Filtered_Vars <- function(pars, dat = Dat_Ori) {
 
    Dat_Tmp     <- dat
@@ -69,6 +75,62 @@ Create_Filtered_Vars <- function(pars, dat = Dat_Ori) {
    
    return(Dat_Tmp)
 }
+
+
+## Return Variable Index
+## Input  : Lambda Table
+## Output : Variable Index
+Update_Variable_Index <- function(Lambda_Table, Pop_Size, Gen_N) {
+   Population_Size <- Pop_Size
+   Generation_Num  <- Gen_N
+   
+   ### elite solution (best found so far)
+   Elite_Sol <- Var_Idx
+   
+   ### similar solutions to eliteSolution
+   Other_Sol <- matrix(Elite_Sol, Population_Size - 1, length(Candidate_Vars),
+                       byrow = T)
+   
+   set.seed(123)
+   NS  <- prod(dim(Other_Sol))
+   r   <- Population_Size - 1
+   c   <- length(Candidate_Vars)
+   idx <- matrix(runif(NS), r, c, byrow = T) < (1.0 / c)
+   x   <- Other_Sol[idx]
+   Other_Sol[idx] <- as.integer(xor(x, TRUE))
+   
+   ### initial population is generated with eliteSolution and otherSolution
+   Init_Pop <- rbind(Elite_Sol, Other_Sol)
+   
+   ### genetic operations and parameters are set appropriately
+   gaControl("binary" = list(selection = "gabin_tourSelection",
+                             crossover = "gabin_uCrossover"))
+   
+   ### genetic algorithm running
+   run_GA <- ga(type        = "binary",
+                fitness     = get_model,
+                suggestions = Init_Pop,
+                pmutation   = ga_pmutation,
+                popSize     = Population_Size,
+                maxiter     = Generation_Num,
+                nBits       = length(Candidate_Vars),
+                monitor     = T)
+
+}
+
+
+## Return AIC under given Variable Index & lambda (Objective function)
+## Input  : Variable Index, Lambda values
+## Output : AIC value
+Return_AIC_GA <- function(x, Lambda_Table) {
+   Index_Selected     <- which(x == 1, arr.ind = T)
+   Pred_Vars_Selected <- Candidate_Vars[Index_Selected]
+   Pred_Vars          <- c(Fixed_Vars, Pred_Vars_Selected)
+   Lambda <- Lambda_Table[which(names(Lambda_Table) %in% Pred_Vars_Selected)]
+   
+   Return_AIC(Lambda)
+}
+
 
 
 # Dat_Ori              <- iris[, -5]
@@ -94,21 +156,16 @@ Candidate_Vars      <- colnames(Dat_Try)
 Lambda_Table        <- c(l1, l2, l3, l4, l5)
 names(Lambda_Table) <- colnames(Dat_Try)
 
-Dat_Fil <- Create_Filtered_Vars(pars, rep(1, 5), dat = Dat_Try)
+Dat_Fil <- Create_Filtered_Vars(Lambda_Table, dat = Dat_Try)
 head(Dat_Try)
 head(Dat_Fil)
 
 Dat_Try$Y <- as.matrix(cbind(1, Dat_Fil)) %*% bs + rnorm(100)
 Dat_Ori <- Dat_Try
 
-Var_Idx <- c(1, 0, 0, 0, 1)
-Lambda  <- Lambda_Table[Var_Idx == 1]
+Var_Idx <- c(1, 0, 1, 0, 1)
+Lambda_Table <- Update_Lambda_Table(Var_Idx)
 
-Create_Filtered_Vars(Lambda)
-Return_AIC(Lambda)
-res <- Update_Lambda_Table(Var_Idx)
-Var_Idx <- as.integer(res)
-res <- Update_Lambda(res, Var_Idx = Var_Idx, dat = Dat_Ori)$Lambda
 
 ################################################################################
 ## Try using simulated data
