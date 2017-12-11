@@ -25,7 +25,7 @@ library(GA)
 ## Output : Updated Lambda table under given Variable Index
 Update_Lambda_Table <- function(Var_Idx, opt_method, Pop_Size = 200, Gen_N = 200) {
 
-   ## Select target variable & their lambda  
+   ## Select target variable & those lambdas
    Vars    <- Candidate_Vars[Var_Idx == 1]
    Lambda  <- Lambda_Table[which(names(Lambda_Table) %in% Vars)]
    
@@ -33,11 +33,11 @@ Update_Lambda_Table <- function(Var_Idx, opt_method, Pop_Size = 200, Gen_N = 200
    if (opt_method == "optim") {
       
       ## by optim
-      Values  <- optim(par = Lambda, 
-                       fn = Return_AIC, 
-                       method = "L-BFGS-B", 
-                       lower = rep(0, length(Lambda)),
-                       upper = rep(1, length(Lambda)))$par
+      # Values  <- optim(par = Lambda, 
+      #                  fn = Return_AIC, 
+      #                  method = "L-BFGS-B", 
+      #                  lower = rep(0, length(Lambda)),
+      #                  upper = rep(1, length(Lambda)))$par
       Values  <- optim(par = Values, 
                        fn = Return_AIC,
                        method = "L-BFGS-B", 
@@ -55,7 +55,7 @@ Update_Lambda_Table <- function(Var_Idx, opt_method, Pop_Size = 200, Gen_N = 200
                     max = rep(1, length(Lambda)),
                     popSize = Pop_Size, 
                     maxiter = Gen_N, 
-                    pmutation   = ga_pmutation,
+                    pmutation = ga_pmutation,
                     names = Vars,
                     keepBest = T, 
                     monitor  = F,
@@ -235,9 +235,6 @@ for (i in 1:5) {
 ################################################################################
 ## Try using simulated data
 ################################################################################
-
-
-
 ### Parameters settings
 n_year  <- 4
 n_month <- 12
