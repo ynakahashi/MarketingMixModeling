@@ -75,7 +75,7 @@ var_state_t0 <- 1
 var_state <- 0.01
 
 # 誤差項
-var_error <- 1
+var_error <- 0.5
 
 ## 説明変数X
 scale_x  <- 5
@@ -101,6 +101,8 @@ for (i in 1:num_region) {
    }
 }
 
+# State <- rep(rnorm(5, 3, 2), each = data_length)
+
 ## 目的変数
 error <- rnorm(num_region * data_length, 0, sqrt(var_error))
 Y     <- State + X * beta_ad_all + error
@@ -115,7 +117,9 @@ DF <- data.frame(
    "True_s" = State,
    "True_e" = error)
 ```
+
 ここで観測値と状態変数が各地域でどのように推移しているか確認しておきます。
+
 ```{r}
 DF %>% 
    gather("Var", "Val", -c(Area_ID, YM)) %>% 
@@ -203,7 +207,7 @@ model {
 上記のモデルを用いて、フィッティングを行います。
 
 ```{r}
-fit_01 <- stan(file = '/Users/nakahashi/Desktop/Git/TryRstan/StanModel/HBSSM_Sim.stan', 
+fit_01 <- stan(file = '/Users/nakahashi/Desktop/Git/MarketingMixModeling/HB_SSM_Sim.stan', 
                data = dat_Stan, 
                iter = 1000,
                chains = 4,
@@ -275,9 +279,5 @@ ggplot(beta_cmp, aes(x = True, y = Est)) +
 ests[rownames(ests) %in% b0_rows, "mean"]
 print(mu_beta)
 print(var_beta)
-
-ests[rownames(ests) %in% t0_rows, "mean"]
-print(state_t0)
-print(var_state_t0)
 ```
 
