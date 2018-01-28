@@ -27,6 +27,13 @@ model {
    //    }
    // }
 
+   // stateの1期目は指定しない（岩波DS Vol.1の松浦さんのスクリプトを参考）
+   // for (k in 1:K) {
+   //    for(i in 2:N) {
+   //       state[i + (k-1)*N] ~ normal(state[i-1 + (k-1)*N], var_state);
+   //    }
+   // }
+
    for (i in 1:N*K) {
       if (i % N == 1 ) {
          state[i] ~ normal(state_t0, var_state_t0);
@@ -34,13 +41,6 @@ model {
          state[i] ~ normal(state[i-1], var_state);
       }
    }
-
-   // stateの1期目は指定しない（岩波DS Vol.1の松浦さんのスクリプトを参考）
-   // for (k in 1:K) {
-   //    for(i in 2:N) {
-   //       state[i + (k-1)*N] ~ normal(state[i-1 + (k-1)*N], var_state);
-   //    }
-   // }
 
    // beta
    for (k in 1:K) {
