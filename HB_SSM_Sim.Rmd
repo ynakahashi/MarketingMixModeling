@@ -17,7 +17,7 @@ output: html_notebook
 
 そのような時に、パラメータ間に緩やかな縛りをかける方法として**階層ベイズモデル**という手法があります。詳しくは書籍[^1]を参考にして頂くとして、ここでは「各地域の広告効果を表すパラメータ$\beta$を生成する分布を仮定する」方法と説明しておきます。この分布の幅（バラつき、分散）が十分に大きければ広告効果は地域によって様々な値を取り得ますし、逆に分布の幅が極端に狭ければ地域ごとの広告効果に差はないことを意味します。
 
-[^1]:ベイズモデリングの世界、久保先生の緑本、松浦さんのアヒル本など良書はたくさんあります。
+[^1]:伊庭先生のベイズモデリングの世界、久保先生の緑本、松浦さんのアヒル本など良書はたくさんあります。
 
 ### 目的
 この階層構造を持つモデルを、時系列データの分析でお馴染みの**状態空間モデル**と合わせて取り扱いたいというのが今回の試みです。具体的には、以下のようなモデルを想定しています。
@@ -31,16 +31,18 @@ y_{A,t} = \mu_{A,t} + \beta_{A}X_{A,t} + \epsilon_{A,t} \\
 \end{equation*}
 $$
 
-添字の`A`および`t`はそれぞれ地域（Area）と時点（time）を意味しており、$y_{A,t}$は「ある地域のt時点における観測値」となります。広告効果$\beta$に対して、その数値の元となる分布（ここでは正規分布）を仮定しています。
+添字の`A`および`t`はそれぞれ地域（Area）と時点（time）を意味しており、$y_{A,t}$は「ある地域`A`の`t`時点における観測値」となります。
+ポイントは4行目で、地域ごとの広告効果$\beta_{A}$に対して、その生成元となる分布（ここでは正規分布）を仮定しています。もし$¥sigma_{¥beta}^{2}$が大きければ$¥beta$は様々な値を取り得ますが、値が小さければ非常に似通った値になることが理解できると思います。
 
 #### ライブラリの読み込み
 今回の分析では`{rstan}`を使用します。階層ベイズ + 状態空間モデルといった非常に複雑なモデルを表現できるのが強みです。
 
 ```{r}
+library(tidyverse)
 library(ggplot2)
 library(rstan)
-rstan_options(auto_write = TRUE)
 options(mc.cores = parallel::detectCores())
+rstan_options(auto_write = TRUE)
 ```
 
 #### シミュレーションデータの生成
@@ -75,7 +77,7 @@ var_state_t0 <- 1
 var_state <- 0.01
 
 # 誤差項
-var_error <- 0.5
+var_error <- 0.01
 
 ## 説明変数X
 scale_x  <- 5
@@ -100,8 +102,6 @@ for (i in 1:num_region) {
       }
    }
 }
-
-# State <- rep(rnorm(5, 3, 2), each = data_length)
 
 ## 目的変数
 error <- rnorm(num_region * data_length, 0, sqrt(var_error))
@@ -130,7 +130,7 @@ DF %>%
 ```
 
 
-また、この時点でlmで推定した$\beta$がどのようになるかも確認しておきましょう。
+また、この時点で地域をまとめてlmで推定した$\beta$がどのようになるかも確認しておきましょう。
 ```{r}
 coef(lm(Y ~ X, data = DF))
 ```
@@ -207,11 +207,22 @@ model {
 上記のモデルを用いて、フィッティングを行います。
 
 ```{r}
-fit_01 <- stan(file = '/Users/nakahashi/Desktop/Git/MarketingMixModeling/HB_SSM_Sim.stan', 
-               data = dat_Stan, 
+# fit_01 <- stan(file = '/Users/nakahashi/Desktop/Git/MarketingMixModeling/HB_SSM_Sim.stan', 
+#                data = dat_Stan, 
+#                iter = 1000,
+#                chains = 4,
+#                seed = 123)
+fit_01 <- stan(file = '/Users/yn250006/Desktop/Git/MarketingMixModeling/HB_SSM_Sim.stan',
+               data = dat_Stan,
                iter = 1000,
                chains = 4,
                seed = 123)
+# fit_03 <- stan(file = '/Users/yn250006/Desktop/Git/MarketingMixModeling/HB_SSM_Sim.stan', 
+#                data = dat_Stan, 
+#                iter = 3000,
+#                control = list(max_treedepth = 15),
+#                chains = 4,
+#                seed = 123)
 ```
 
 
@@ -247,6 +258,7 @@ state_cmp <- data.frame(
 ```
 
 まずは状態変数の推定結果を見てみましょう。実際の値と推定値を並べてみます。
+
 ```{r}
 state_cmp %>% 
    gather("Var", "Val", -c(Area, YM)) %>% 
@@ -255,7 +267,28 @@ state_cmp %>%
    facet_wrap(~Area)
 ```
 
+おぉ！かなり精度良く推定できているようですね！初期値や分散の推定値はどうでしょうか？
+
+```{r}
+ests %>% 
+   data.frame %>% 
+   select(mean) %>% 
+   rename("Estimated" = mean) %>% 
+   mutate("Par" = rownames(ests)) %>% 
+   filter(Par %in% t0_rows) %>% 
+   mutate("True" = c(state_t0, var_state_t0)) %>% 
+   mutate("Simulated" = c(
+      mean(DF[c(1, 49, 97, 145, 193), "True_s"]),
+      var(DF[c(1, 49, 97, 145, 193), "True_s"])
+   )) %>% 
+   select(Par, True, Simulated, Estimated)
+```
+
 回帰係数はどうでしょうか。
+
+
+
+
 ```{r}
 beta_par <- 
    ests %>% 
@@ -274,10 +307,14 @@ ggplot(beta_cmp, aes(x = True, y = Est)) +
    coord_fixed()
 ```
 
+こちらも事前に設定した回帰係数と推定値が似通っているようです。
 
 ```{r}
 ests[rownames(ests) %in% b0_rows, "mean"]
-print(mu_beta)
-print(var_beta)
+print(c("mu_beta" = mu_beta, "var_beta" = var_beta))
 ```
+
+回帰係数の分散はちょっと大きく推定されているようですね。
+
+
 
