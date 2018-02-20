@@ -32,7 +32,7 @@ y_{A,t} = \mu_{A,t} + \beta_{A}X_{A,t} + \epsilon_{A,t} \\
 $$
 
 添字の`A`および`t`はそれぞれ地域（Area）と時点（time）を意味しており、$y_{A,t}$は「ある地域`A`の`t`時点における観測値」となります。
-ポイントは4行目で、地域ごとの広告効果$\beta_{A}$に対して、その生成元となる分布（ここでは正規分布）を仮定しています。もし$¥sigma_{¥beta}^{2}$が大きければ$¥beta$は様々な値を取り得ますが、値が小さければ非常に似通った値になることが理解できると思います。
+ポイントは4行目で、地域ごとの広告効果$\beta_{A}$に対して、その生成元となる分布（ここでは正規分布）を仮定しています。もし$\sigma_{\beta}^{2}$が大きければ$\beta$は様々な値を取り得ますが、値が小さければ非常に似通った値になることが理解できると思います。
 
 #### ライブラリの読み込み
 今回の分析では`{rstan}`を使用します。階層ベイズ + 状態空間モデルといった非常に複雑なモデルを表現できるのが強みです。
@@ -207,27 +207,16 @@ model {
 上記のモデルを用いて、フィッティングを行います。
 
 ```{r}
-# fit_01 <- stan(file = '/Users/nakahashi/Desktop/Git/MarketingMixModeling/HB_SSM_Sim.stan', 
-#                data = dat_Stan, 
-#                iter = 1000,
-#                chains = 4,
-#                seed = 123)
 fit_01 <- stan(file = '/Users/yn250006/Desktop/Git/MarketingMixModeling/HB_SSM_Sim.stan',
                data = dat_Stan,
                iter = 1000,
                chains = 4,
                seed = 123)
-# fit_03 <- stan(file = '/Users/yn250006/Desktop/Git/MarketingMixModeling/HB_SSM_Sim.stan', 
-#                data = dat_Stan, 
-#                iter = 3000,
-#                control = list(max_treedepth = 15),
-#                chains = 4,
-#                seed = 123)
 ```
 
 
 #### 結果の確認
-フィッティングが終わったので、結果を見てみましょう。まずは`fit_01`からサンプルを抽出して加工します。
+フィッティングが終わったので、結果を見てみましょう。`fit_01`からサンプルを抽出して加工します。
 
 ```{r}
 ## サンプルを抽出する
@@ -257,7 +246,25 @@ state_cmp <- data.frame(
 )
 ```
 
+
+```{r}
+stan_trace(fit_01, pars = t0_rows)
+stan_trace(fit_01, pars = state_rows[c(1, 49, 97, 145, 193)])
+stan_trace(fit_01, pars = b0_rows)
+stan_trace(fit_01, pars = beta_rows)
+stan_trace(fit_01, pars = beta_rows, inc_warmup = T)
+stan_hist(fit_01, pars = t0_rows)
+stan_hist(fit_01, pars = state_rows[c(1, 49, 97, 145, 193)])
+stan_hist(fit_01, pars = b0_rows)
+stan_hist(fit_01, pars = beta_rows)
+stan_hist(fit_01, pars = beta_rows)
+```
+
+
 まずは状態変数の推定結果を見てみましょう。実際の値と推定値を並べてみます。
+（なお以降の作業の前にサンプルのtraceプロットとヒストグラムを確認し、収束していると判断しています）
+
+
 
 ```{r}
 state_cmp %>% 
@@ -267,7 +274,7 @@ state_cmp %>%
    facet_wrap(~Area)
 ```
 
-おぉ！かなり精度良く推定できているようですね！初期値や分散の推定値はどうでしょうか？
+おぉ、かなり精度良く推定できているようですね！状態変数の初期値や分散の推定値はどうでしょうか？
 
 ```{r}
 ests %>% 
@@ -284,10 +291,21 @@ ests %>%
    select(Par, True, Simulated, Estimated)
 ```
 
-回帰係数はどうでしょうか。
+真の値がそれぞれ`3`および`1`であったのに対し、生成されたデータでは`3.7`および`0.85`でした。推定された値は`3.7`および`1.3`で、分散がやや過大に推定されているようです。ただし以下に示すように、推定値の95%信用区間も結構広いため、逸脱しているとまでは言えないようです。
+
+```{r}
+ests %>% 
+   data.frame %>% 
+   select(X2.5., X97.5.) %>% 
+   rename("Lower95" = X2.5.,
+          "Upeer95" = X97.5.) %>% 
+   mutate("Par" = rownames(ests)) %>% 
+   filter(Par %in% t0_rows) %>% 
+   select(Par, everything())
+```
 
 
-
+続いて回帰係数はどうでしょうか。
 
 ```{r}
 beta_par <- 
@@ -307,14 +325,39 @@ ggplot(beta_cmp, aes(x = True, y = Est)) +
    coord_fixed()
 ```
 
-こちらも事前に設定した回帰係数と推定値が似通っているようです。
+こちらも、事前に設定した回帰係数と推定値が似通っているようです。数値を確認しても、良い精度で推定できていることが確認できます。
 
 ```{r}
-ests[rownames(ests) %in% b0_rows, "mean"]
-print(c("mu_beta" = mu_beta, "var_beta" = var_beta))
+ests %>% 
+   data.frame %>% 
+   select(mean) %>% 
+   mutate("Par" = rownames(ests)) %>% 
+   filter(Par %in% beta_rows) %>% 
+   bind_cols("True" = beta_ad) %>% 
+   select(Par, True, mean)
 ```
 
-回帰係数の分散はちょっと大きく推定されているようですね。
+最後に、回帰係数の事前分布についても見ておきましょう。
+
+```{r}
+ests %>% 
+   data.frame %>% 
+   select(mean) %>% 
+   mutate("Par" = rownames(ests)) %>% 
+   filter(Par %in% b0_rows) %>% 
+   bind_cols("True" = c(mu_beta, var_beta)) %>% 
+   select(Par, True, mean)
+```
+
+回帰係数の事前分布の分散はちょっと大きく推定されているようですが、平均は近しい値となっているようです。
 
 
+#### 終わりに
+
+以上、「階層ベイズと状態空間モデルを合わせて取り扱いたい」という試みでしたが、結果としては概ね満足の行くものになったと思います。
+序盤に書いた通り、階層ベイズ + 状態空間モデルのような非常に複雑なモデルであっても、stanを使えば非常に簡単に推定が可能です。
+
+これまで広告効果の推定についていくつか記事を書いてきましたが、実はゴールとなるモデルとしてはこれを想定していました。
+あとはこのモデルにこれまで紹介してきたようなAdStock効果の推定を組み込めば、試してみたかったモデルは一通り完了することになります。
+これについても追って紹介したいと思っています。
 
