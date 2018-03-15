@@ -1,0 +1,386 @@
+---
+title: "広告効果を推定しつつ回帰を回したい"
+author: Y.Nakahashi
+date: 2018-03-15
+output: html_notebook
+---
+
+### 背景
+しつこいようですが、*Marketing Mix Modeling*（*MMM*）の話題です。
+
+先日、[こんな面白い論文](https://static.googleusercontent.com/media/research.google.com/ja//pubs/archive/45999.pdf)を見つけました。
+GoogleのResearcherによるMMMの論文（彼らはMedia Mix Modelingと呼んでいます）なのですが、彼らは**ヒルの式**を用いて広告のShape効果（Carveture効果）を推定するということをやっています。ここでヒルの式とは：
+
+$$
+H(x; K, S) = \frac{1}{1 + (\frac{x}{K})^{-S}}
+$$
+であり、$K > 0$や$S > 0$となるパラメータによってLogやSigmoidの形状を表現することができます。
+またShape効果・carveture効果とは、メディアの露出量に対する目的変数の反応を示す曲線を指しています。
+
+ヒルの式による変換がどのような形状となるかを確認してみましょう。まずはヒルの式を以下のように定義します。
+
+```{r}
+hill_transformation <- function(x, k, s) {
+   1 / (1 + (x / k)^-s)
+}
+```
+
+続いて、パラメータとなる`k`と`s`をそれぞれ以下のように設定した場合をプロットしてみましょう。なおこの数値は論文から拝借しています。
+
+```{r}
+x <- seq(0, 1, by = 0.05) # xは[0, 1]にスケーリングする
+
+plot(x, hill_transformation(x, 0.4, 4), 
+     type = "l", col = 2, xlim = c(0, 1), ylim = c(0, 1),
+     ylab = "Hill Transformed Value")
+par(new = T)
+plot(x, hill_transformation(x, 0.4, 1), 
+     type = "l", col = 3, xlim = c(0, 1), ylim = c(0, 1), axes = F,
+     ylab = "")
+par(new = T)
+plot(x, hill_transformation(x, 0.8, 4), 
+     type = "l", col = 4, xlim = c(0, 1), ylim = c(0, 1), axes = F,
+     ylab = "")
+par(new = T)
+plot(x, hill_transformation(x, 0.8, 1), 
+     type = "l", col = 5, xlim = c(0, 1), ylim = c(0, 1), axes = F,
+     ylab = "")
+legend("topleft", legend = c("0.4, 4", "0.4, 1", "0.8, 4", "0.8, 1"), 
+       col = c(2:5), lty = rep(1, 4))
+```
+
+このように、パラメータを変更することで元の値を柔軟に変換することが可能です。
+
+これまで私が書いてきた記事では、いずれも広告効果（つまり回帰係数）そのものを推定する方法にばかり注目しており、説明変数の"効き方"については触れてきませんでした。
+これは、広告の効果は出稿が増すにつれて段々と減少していくことを仮定することが多く、対数を取ることでそういった飽和を表現できる上、両対数モデルであれば回帰係数がそのまま弾力性になるという性質を持つため便利であることから安易に対数変換を選択していたためなのですが、これはちょっと検討が足りないと言われても仕方ない状況です。
+
+というわけで本エントリーでは、ヒルの式により変換したXを用いてシミュレーションデータを発生させ、元のXから変数変換のためのパラメータを推定できるかを検証したいと思います。なお元論文ではAdStock効果xxxxxxxx
+
+
+#### ライブラリの読み込み
+今回の分析でも`{rstan}`を使用します。
+
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(rstan)
+options(mc.cores = parallel::detectCores())
+rstan_options(auto_write = TRUE)
+```
+
+#### シミュレーションデータの生成
+分析用のデータを生成しますが、検証のポイントとしては以下のようになります：
+
+- 5地域（`num_region`）から4年分（`num_year`）の月次（`num_month`）データを収集し、合計240点の観測値を得たと想定
+- 回帰係数（広告効果）は平均`0.5`、分散`0.01`の正規分布にしたがって発生
+- 状態変数のパラメータは各地域で共通
+
+```{r}
+## シードの固定
+set.seed(123)
+
+## 観測値の数
+num_region  <- 5
+num_month   <- 12
+num_year    <- 4
+data_length <- num_month * num_year
+
+## 回帰係数
+mu_beta  <- 0.5
+var_beta <- 0.01  
+beta_ad  <- rnorm(num_region, mu_beta, sqrt(var_beta))
+beta_ad_all <- rep(beta_ad, each = data_length)
+
+## 分布の設定
+# 状態変数の初期値
+state_t0     <- 3
+var_state_t0 <- 1
+
+# 状態変数の分散
+var_state <- 0.01
+
+# 誤差項
+var_error <- 0.01
+
+## 説明変数X
+scale_x  <- 5
+zero_per <- 0.2
+X <- ifelse(runif(num_region * data_length) > zero_per, 1, 0) * 
+   rpois(num_region * data_length, scale_x)
+```
+
+上記の条件に従いデータを発生させます。状態変数を除けば先に示したモデルの通り簡単な線形モデルです。`Area_ID`は、後ほどStanでフィッティングを行うために必要となる変数で、`YM`は描画用です。
+
+```{r}
+## 状態変数
+State <- matrix(0, nrow = num_region * data_length)
+for (i in 1:num_region) {
+   for (j in 1:data_length) {
+      if (j == 1) {
+         ## 1, 49, 97, 145, 193行目が各地域の先頭となる
+         State[(i-1) * data_length + j] <- rnorm(1, state_t0, sqrt(var_state_t0))
+      } else {
+         State[(i-1) * data_length + j] <- 
+            State[(i-1) * data_length + j - 1] + rnorm(1, 0, sqrt(var_state))
+      }
+   }
+}
+
+## 目的変数
+error <- rnorm(num_region * data_length, 0, sqrt(var_error))
+Y     <- State + X * beta_ad_all + error
+
+## 地域ごとのID
+Area_ID <- 1:num_region
+DF <- data.frame(
+   "Area_ID" = rep(Area_ID, each = data_length), 
+   "YM" = rep(1:data_length, time = num_region),
+   "Y" = Y,
+   "X" = X,
+   "True_s" = State,
+   "True_e" = error)
+```
+
+ここで観測値と状態変数が各地域でどのように推移しているか確認しておきます。
+
+```{r}
+DF %>% 
+   gather("Var", "Val", -c(Area_ID, YM)) %>% 
+   filter(Var %in% c("Y", "True_s")) %>% 
+   ggplot(., aes(x = YM, y = Val, color = Var)) +
+   geom_line() +
+   facet_wrap(~Area_ID)
+```
+
+
+また、この時点で地域をまとめてlmで推定した$\beta$がどのようになるかも確認しておきましょう。
+```{r}
+coef(lm(Y ~ X, data = DF))
+```
+
+また地域ごとにデータを分割した場合も試してみます。
+
+```{r}
+results <- list()
+for (i in Area_ID) {
+   results[[as.character(i)]] <- coef(lm(Y ~ X, data = DF, subset = Area_ID == i))
+}
+print(cbind(do.call("rbind", results), beta_ad))
+```
+
+そこそこ近い値が推定されていますね（汗
+
+#### Stanによるフィッティング
+気を取り直して、Stanを用いたフィッティングを実行してみます。Stanに渡すデータは以下の通りです。
+
+```{r}
+dat_Stan <- list(N       = data_length,
+                 K       = num_region,
+                 Y       = DF$Y,
+                 X       = DF$X,
+                 Area_ID = DF$Area_ID)
+```
+
+またStanのスクリプトは以下のようになります。
+
+```{stan}
+data {
+   int N; // 地域ごとの観測値の数（data_length）
+   int K; // 地域の数（num_region）
+   vector[N*K] Y; // 観測値のベクトル
+   vector[N*K] X; // 説明変数のベクトル
+   int<lower=1, upper=K> Area_ID[N*K];
+}
+
+parameters {
+   real state_t0;     // 状態変数の0期目の平均
+   vector[N*K] state; // 状態変数のベクトル
+   real beta_0;       // 回帰係数の事前分布の平均
+   vector[K] beta;    // 地域ごとの回帰係数のベクトル
+   real<lower=0> var_state_t0; // 状態変数の0期目の分散
+   real<lower=0> var_state;    // 状態変数の分散
+   real<lower=0> var_beta_0;   // 回帰係数の事前分布の分散
+   real<lower=0> var_error;    // 誤差分散
+}
+
+model {
+   // 状態変数をサンプリング
+   for (k in 1:K) {
+      // 1期目の値は0期目の分布からサンプルする
+      state[1 + (k-1)*N] ~ normal(state_t0, var_state_t0);
+      
+      // 2期目以降は前期の値を平均とした分布からサンプルする
+      for(i in 2:N) {
+         state[i + (k-1)*N] ~ normal(state[i-1 + (k-1)*N], var_state);
+      }
+   }
+   
+   // 回帰係数をサンプリング
+   for (k in 1:K) {
+      beta[k] ~ normal(beta_0, var_beta_0);
+   }
+
+   // Yをサンプリング
+   for(i in 1:(N*K)) {
+      Y[i] ~ normal(state[i] + beta[Area_ID[i]] * X[i], var_error);
+   }
+}
+```
+
+上記のモデルを用いて、フィッティングを行います。
+
+```{r}
+fit_01 <- stan(file = '/Users/yn250006/Desktop/Git/MarketingMixModeling/HB_SSM_Sim.stan',
+               data = dat_Stan,
+               iter = 1000,
+               chains = 4,
+               seed = 123)
+```
+
+
+#### 結果の確認
+フィッティングが終わったので、結果を見てみましょう。`fit_01`からサンプルを抽出して加工します。
+
+```{r}
+## サンプルを抽出する
+res_01 <- rstan::extract(fit_01)
+
+## 該当するパラメータを取り出す
+ests <- summary(fit_01)$summary
+t0_rows    <- rownames(ests)[grep("state_t0", rownames(ests))]
+state_rows <- rownames(ests)[grep("state\\[", rownames(ests))]
+b0_rows    <- rownames(ests)[grep("beta_0", rownames(ests))]
+beta_rows  <- rownames(ests)[grep("beta\\[", rownames(ests))]
+
+## 状態変数
+state_par <- 
+   ests %>% 
+   data.frame %>% 
+   select(mean) %>% 
+   mutate("Par" = rownames(ests)) %>% 
+   filter(Par %in% state_rows) %>% 
+   mutate("Area" = DF$Area_ID)
+
+state_cmp <- data.frame(
+   True = State,
+   Est = state_par$mean,
+   Area = as.factor(state_par$Area),
+   YM = DF$YM
+)
+```
+
+
+```{r}
+stan_trace(fit_01, pars = t0_rows)
+stan_trace(fit_01, pars = state_rows[c(1, 49, 97, 145, 193)])
+stan_trace(fit_01, pars = b0_rows)
+stan_trace(fit_01, pars = beta_rows)
+stan_trace(fit_01, pars = beta_rows, inc_warmup = T)
+stan_hist(fit_01, pars = t0_rows)
+stan_hist(fit_01, pars = state_rows[c(1, 49, 97, 145, 193)])
+stan_hist(fit_01, pars = b0_rows)
+stan_hist(fit_01, pars = beta_rows)
+stan_hist(fit_01, pars = beta_rows)
+```
+
+
+まずは状態変数の推定結果を見てみましょう。実際の値と推定値を並べてみます。
+（なお以降の作業の前にサンプルのtraceプロットとヒストグラムを確認し、収束していると判断しています）
+
+
+
+```{r}
+state_cmp %>% 
+   gather("Var", "Val", -c(Area, YM)) %>% 
+   ggplot(., aes(x = YM, y = Val, colour = Var)) +
+   geom_line() +
+   facet_wrap(~Area)
+```
+
+おぉ、かなり精度良く推定できているようですね！状態変数の初期値や分散の推定値はどうでしょうか？
+
+```{r}
+ests %>% 
+   data.frame %>% 
+   select(mean) %>% 
+   rename("Estimated" = mean) %>% 
+   mutate("Par" = rownames(ests)) %>% 
+   filter(Par %in% t0_rows) %>% 
+   mutate("True" = c(state_t0, var_state_t0)) %>% 
+   mutate("Simulated" = c(
+      mean(DF[c(1, 49, 97, 145, 193), "True_s"]),
+      var(DF[c(1, 49, 97, 145, 193), "True_s"])
+   )) %>% 
+   select(Par, True, Simulated, Estimated)
+```
+
+真の値がそれぞれ`3`および`1`であったのに対し、生成されたデータでは`3.7`および`0.85`でした。推定された値は`3.7`および`1.3`で、分散がやや過大に推定されているようです。ただし以下に示すように、推定値の95%信用区間も結構広いため、逸脱しているとまでは言えないようです。
+
+```{r}
+ests %>% 
+   data.frame %>% 
+   select(X2.5., X97.5.) %>% 
+   rename("Lower95" = X2.5.,
+          "Upeer95" = X97.5.) %>% 
+   mutate("Par" = rownames(ests)) %>% 
+   filter(Par %in% t0_rows) %>% 
+   select(Par, everything())
+```
+
+
+続いて回帰係数はどうでしょうか。
+
+```{r}
+beta_par <- 
+   ests %>% 
+   data.frame %>% 
+   select(mean) %>% 
+   mutate("Par" = rownames(ests)) %>% 
+   filter(Par %in% beta_rows)
+
+beta_cmp <- data.frame(
+   True = beta_ad,
+   Est = beta_par$mean
+)
+
+ggplot(beta_cmp, aes(x = True, y = Est)) +
+   geom_point() +
+   coord_fixed()
+```
+
+こちらも、事前に設定した回帰係数と推定値が似通っているようです。数値を確認しても、良い精度で推定できていることが確認できます。
+
+```{r}
+ests %>% 
+   data.frame %>% 
+   select(mean) %>% 
+   mutate("Par" = rownames(ests)) %>% 
+   filter(Par %in% beta_rows) %>% 
+   bind_cols("True" = beta_ad) %>% 
+   select(Par, True, mean)
+```
+
+最後に、回帰係数の事前分布についても見ておきましょう。
+
+```{r}
+ests %>% 
+   data.frame %>% 
+   select(mean) %>% 
+   mutate("Par" = rownames(ests)) %>% 
+   filter(Par %in% b0_rows) %>% 
+   bind_cols("True" = c(mu_beta, var_beta)) %>% 
+   select(Par, True, mean)
+```
+
+回帰係数の事前分布の分散はちょっと大きく推定されているようですが、平均は近しい値となっているようです。
+
+
+#### 終わりに
+
+以上、「階層ベイズと状態空間モデルを合わせて取り扱いたい」という試みでしたが、結果としては概ね満足の行くものになったと思います。
+序盤に書いた通り、階層ベイズ + 状態空間モデルのような非常に複雑なモデルであっても、stanを使えば非常に簡単に推定が可能です。
+
+これまで広告効果の推定についていくつか記事を書いてきましたが、実はゴールとなるモデルとしてはこれを想定していました。
+あとはこのモデルにこれまで紹介してきたようなAdStock効果の推定を組み込めば、試してみたかったモデルは一通り完了することになります。
+これについても追って紹介したいと思っています。
+
