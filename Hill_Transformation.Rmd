@@ -9,15 +9,13 @@ output: html_notebook
 しつこいようですが、*Marketing Mix Modeling*（*MMM*）の話題です。
 
 先日、[こんな面白い論文](https://static.googleusercontent.com/media/research.google.com/ja//pubs/archive/45999.pdf)を見つけました。
-GoogleのResearcherによるMMMの論文（彼らはMedia Mix Modelingと呼んでいます）なのですが、彼らは**ヒルの式**を用いて広告のShape効果（Carveture効果）を推定するということをやっています。ここでヒルの式とは：
+GoogleのResearcherによるMMMの論文（彼らはMedia Mix Modelingと呼んでいます）なのですが、彼らは**ヒルの式**を用いて広告のShape効果（Carveture効果）を推定するということをやっています。ここでShape効果・carveture効果とは、メディアの露出量に対する目的変数の反応を示す曲線を指すようで、ヒルの式とは：
 
 $$
 H(x; K, S) = \frac{1}{1 + (\frac{x}{K})^{-S}}
 $$
-であり、$K > 0$や$S > 0$となるパラメータによってLogやSigmoidの形状を表現することができます。
-またShape効果・carveture効果とは、メディアの露出量に対する目的変数の反応を示す曲線を指しています。
-
-ヒルの式による変換がどのような形状となるかを確認してみましょう。まずはヒルの式を以下のように定義します。
+であり、$K > 0$や$S > 0$となるパラメータによってLogやSigmoidの形状を表現することができるもののようです。
+ここでヒルの式によってxがどのような形状となるかを確認してみましょう。まずはヒルの式を以下のように定義します。
 
 ```{r}
 hill_transformation <- function(x, k, s) {
@@ -28,7 +26,7 @@ hill_transformation <- function(x, k, s) {
 続いて、パラメータとなる`k`と`s`をそれぞれ以下のように設定した場合をプロットしてみましょう。なおこの数値は論文から拝借しています。
 
 ```{r}
-x <- seq(0, 1, by = 0.05) # xは[0, 1]にスケーリングする
+x <- seq(0, 1, by = 0.05)
 
 plot(x, hill_transformation(x, 0.4, 4), 
      type = "l", col = 2, xlim = c(0, 1), ylim = c(0, 1),
@@ -45,45 +43,23 @@ par(new = T)
 plot(x, hill_transformation(x, 0.8, 1), 
      type = "l", col = 5, xlim = c(0, 1), ylim = c(0, 1), axes = F,
      ylab = "")
-legend("topleft", legend = c("0.4, 4", "0.4, 1", "0.8, 4", "0.8, 1"), 
+legend("topleft", legend = c("k = 0.4, s = 4", "k = 0.4, s = 1", 
+                             "k = 0.8, s = 4", "k = 0.8, s = 1"), 
        col = c(2:5), lty = rep(1, 4))
 ```
 
 このように、パラメータを変更することで元の値を柔軟に変換することが可能です。
 
-これまで私が書いてきた記事では、いずれも広告効果（つまり回帰係数）そのものを推定する方法にばかり注目しており、説明変数の"効き方"については触れてきませんでした。
-これは、広告の効果は出稿が増すにつれて段々と減少していくことを仮定することが多く、対数を取ることでそういった飽和を表現できる上、両対数モデルであれば回帰係数がそのまま弾力性になるという性質を持つため便利であることから安易に対数変換を選択していたためなのですが、これではちょっと検討が足りないと言われても仕方ありません。
+これまで私が書いてきた記事では、いずれも広告効果（回帰係数）そのものを推定する方法にばかり注目しており、説明変数の"効き方"については触れてきませんでした。これは、広告の効果は出稿が増すにつれて段々と減少していくことを仮定することが多く、対数を取ることでそういった飽和を表現できるためです。また両対数モデル（yとxの両方を対数変換したモデル）であれば回帰係数がそのまま弾力性になるという性質を持つため便利であり、安易に対数変換を選択していました。しかし、これではちょっと検討が足りないと言われても仕方ありません。
 
-というわけで本エントリーでは、ヒルの式により変換したXを用いてシミュレーションデータを発生させ、元のXから変数変換のためのパラメータを推定できるかを検証したいと思います。なお元論文ではAdStock効果xxxxxxxx
+というわけで本エントリーでは、ヒルの式により変換したXを用いてシミュレーションデータを発生させ、元のXから変数変換のためのパラメータを推定できるかを検証したいと思います。なお元論文ではAd-Stock効果としてGeometric Ad-Stock：
 
+$$
+GA(x_{t}; \alpha, L) = \frac{\sum_{l = 0}^{L}x_{t-l}\alpha^{l}}{\sum_{l = 0}^{L}\alpha^{l}}
+$$
 
-```{r}
-geometric_adstock <- function(x, a, L) {
-   N <- length(x)
-   return_mat <- matrix(NA, N, 1)
-   
-   # denomi <- 0
-   # for(l in 0:L) {
-   #    denomi <- denomi + a^l
-   # }
-   
-   for (t in 1:N) {
-      tmp <- 0
-      for (l in 0:L) {
-         if (t <= l) break
-         tmp <- tmp + x[t - l]*a^l / a^l
-      }
-      return_mat[t, 1] <- tmp
-   }
-   return(return_mat)
-}
+を用いていますが、今回の検証の対象外なのでAd-Stock効果としてはいつも通りKoyck型のものとします。
 
-x <- runif(100, 0, 1)
-x <- rep(1, 100)
-plot(x, geometric_adstock(x, 0.1, 10), type = "b")
-plot(x, geometric_adstock(x, 0.3, 10), type = "b")
-plot(x, geometric_adstock(x, 0.8, 10), type = "b")
-```
 
 
 #### ライブラリの読み込み
@@ -98,116 +74,108 @@ rstan_options(auto_write = TRUE)
 ```
 
 #### シミュレーションデータの生成
-分析用のデータを生成しますが、検証のポイントとしては以下のようになります：
-
-- 5地域（`num_region`）から4年分（`num_year`）の月次（`num_month`）データを収集し、合計240点の観測値を得たと想定
-- 回帰係数（広告効果）は平均`0.5`、分散`0.01`の正規分布にしたがって発生
-- 状態変数のパラメータは各地域で共通
+分析用のデータを以下のように生成します。特別なことは何もしておらず、与えた数値にしたがって目的変数`y`と説明変数`X1`および`X2`を作成します。
 
 ```{r}
-## シードの固定
+## データ生成用の関数を定義
+simulate_y <- function(pars) {
+   n         <- pars[1]  # num of observation
+   mu        <- pars[2]  # intercept
+   beta_01   <- pars[3]  # regression coefficient of X1 to be esitmated
+   beta_02   <- pars[4]  # regression coefficient of X2 to be esitmated
+   lambda_01 <- pars[5]  # decay rate of Ad-Stock effect of X1
+   lambda_02 <- pars[6]  # decay rate of Ad-Stock effect of X2
+   k_01      <- pars[7]  # k for X1
+   k_02      <- pars[8]  # k for X2
+   s_01      <- pars[9]  # s for X1
+   s_02      <- pars[10] # s for X2
+   var_e     <- pars[11] # residual variance
+
+   X_01_raw  <- rnorm(n, 100, 2)
+   X_01_fil  <- stats::filter(X_01_raw, lambda_01, "recursive")
+   X_01_conv <- hill_transformation(X_01_fil, k_01, s_01)
+   
+   X_02_raw  <- rnorm(n, 100, 2)
+   X_02_fil  <- stats::filter(X_02_raw, lambda_02, "recursive")
+   X_02_conv <- hill_transformation(X_02_fil, k_02, s_02)
+   
+   error <- rnorm(n, 0, sqrt(var_e))
+   
+   y     <- mu + beta_01 * X_01_conv + beta_02 * X_02_conv + error
+   dat <- data.frame(
+      "Y" = y,
+      "X_01" = X_01_raw,
+      "X_02" = X_02_raw
+   )
+   return(na.omit(dat))
+}
+
+## データ生成
 set.seed(123)
-
-## 観測値の数
-num_region  <- 5
-num_month   <- 12
-num_year    <- 4
-data_length <- num_month * num_year
-
-## 回帰係数
-mu_beta  <- 0.5
-var_beta <- 0.01  
-beta_ad  <- rnorm(num_region, mu_beta, sqrt(var_beta))
-beta_ad_all <- rep(beta_ad, each = data_length)
-
-## 分布の設定
-# 状態変数の初期値
-state_t0     <- 3
-var_state_t0 <- 1
-
-# 状態変数の分散
-var_state <- 0.01
-
-# 誤差項
-var_error <- 0.01
-
-## 説明変数X
-scale_x  <- 5
-zero_per <- 0.2
-X <- ifelse(runif(num_region * data_length) > zero_per, 1, 0) * 
-   rpois(num_region * data_length, scale_x)
+pars <- c(100, 5, 0.8, 0.2, 0.7, 0.7, 0.4, 0.4, 4, 1, 1)
+dat <- simulate_y(pars)
 ```
 
-上記の条件に従いデータを発生させます。状態変数を除けば先に示したモデルの通り簡単な線形モデルです。`Area_ID`は、後ほどStanでフィッティングを行うために必要となる変数で、`YM`は描画用です。
+`X1`、`X2`それぞれについて、
+
+ - 推定したい広告効果　⇒　`0.8`、`0.2`
+ - Koyckラグの残存効果　⇒　ともに`0.7`
+ - ヒルの式の`k`および`s`　⇒　`0.4`および`4`、`0.4`および`1`
+
+と指定しています。これらのパラメータを、もとの`X1`および`X2`から推定することが狙いです。
+
+#### optimによるフィッティング
+手始めに*optim*を使ってフィッティングしてみましょう。これまでの記事でも度々*optim*を使ってきましたが、なかなか精度良く推定することが可能です。
 
 ```{r}
-## 状態変数
-State <- matrix(0, nrow = num_region * data_length)
-for (i in 1:num_region) {
-   for (j in 1:data_length) {
-      if (j == 1) {
-         ## 1, 49, 97, 145, 193行目が各地域の先頭となる
-         State[(i-1) * data_length + j] <- rnorm(1, state_t0, sqrt(var_state_t0))
-      } else {
-         State[(i-1) * data_length + j] <- 
-            State[(i-1) * data_length + j - 1] + rnorm(1, 0, sqrt(var_state))
-      }
-   }
+return_AIC <- function(param, dat) {
+   beta_01   <- param[1]
+   beta_02   <- param[2]
+   lambda_01 <- param[3]
+   lambda_02 <- param[4]
+   k_01      <- param[5]
+   k_02      <- param[6]
+   s_01      <- param[7]
+   s_02      <- param[8]
+   
+   dat$X_01_fil  <- stats::filter(dat$X_01, lambda_01, "recursive")
+   dat$X_01_conv <- hill_transformation(dat$X_01_fil, k_01, s_01)
+   dat$X_02_fil  <- stats::filter(dat$X_02, lambda_02, "recursive")
+   dat$X_02_conv <- hill_transformation(dat$X_02_fil, k_02, s_02)
+   
+   AIC(lm(Y ~ X_01_conv + X_02_conv, dat))
 }
-
-## 目的変数
-error <- rnorm(num_region * data_length, 0, sqrt(var_error))
-Y     <- State + X * beta_ad_all + error
-
-## 地域ごとのID
-Area_ID <- 1:num_region
-DF <- data.frame(
-   "Area_ID" = rep(Area_ID, each = data_length), 
-   "YM" = rep(1:data_length, time = num_region),
-   "Y" = Y,
-   "X" = X,
-   "True_s" = State,
-   "True_e" = error)
+### 適当な数値を入れてみる
+return_AIC(rep(0.5, 8), dat)
+# 273.1042
 ```
 
-ここで観測値と状態変数が各地域でどのように推移しているか確認しておきます。
+ではフィッティングしてみましょう。
 
 ```{r}
-DF %>% 
-   gather("Var", "Val", -c(Area_ID, YM)) %>% 
-   filter(Var %in% c("Y", "True_s")) %>% 
-   ggplot(., aes(x = YM, y = Val, color = Var)) +
-   geom_line() +
-   facet_wrap(~Area_ID)
+param <- rep(0.5, 8)
+res_optim <- optim(par = optim(par = param, fn = return_AIC, dat = dat)$par,
+                   fn = return_AIC, dat = dat)
 ```
 
-
-また、この時点で地域をまとめてlmで推定した$\beta$がどのようになるかも確認しておきましょう。
-```{r}
-coef(lm(Y ~ X, data = DF))
-```
-
-また地域ごとにデータを分割した場合も試してみます。
+少し時間がかかったのでイヤな予感がしますが、パラメータを確認してみると：
 
 ```{r}
-results <- list()
-for (i in Area_ID) {
-   results[[as.character(i)]] <- coef(lm(Y ~ X, data = DF, subset = Area_ID == i))
-}
-print(cbind(do.call("rbind", results), beta_ad))
+true_par <- c(0.8, 0.2, 0.7, 0.7, 0.4, 0.4, 4, 1)
+print(cbind(true_par, res_optim$par), digits = 2)
 ```
 
-そこそこ近い値が推定されていますね（汗
+全く当たっていませんね。。
+
 
 #### Stanによるフィッティング
-気を取り直して、Stanを用いたフィッティングを実行してみます。Stanに渡すデータは以下の通りです。
+では今度はStanを使ってみましょう。以下のように指定します。
 
 ```{r}
-dat_Stan <- list(N       = data_length,
-                 K       = num_region,
-                 Y       = DF$Y,
-                 X       = DF$X,
-                 Area_ID = DF$Area_ID)
+dat_Stan <- list(N        = nrow(dat),
+                 Y        = dat$Y,
+                 X_01     = dat$X_01,
+                 X_02     = dat$X_02)
 ```
 
 またStanのスクリプトは以下のようになります。
@@ -259,9 +227,9 @@ model {
 上記のモデルを用いて、フィッティングを行います。
 
 ```{r}
-fit_01 <- stan(file = '/Users/yn250006/Desktop/Git/MarketingMixModeling/HB_SSM_Sim.stan',
+fit_01 <- stan(file = '/Users/nakahashi/Desktop/Git/MarketingMixModeling/Hill_Transformation.stan',
                data = dat_Stan,
-               iter = 1000,
+               iter = 3000,
                chains = 4,
                seed = 123)
 ```
@@ -269,6 +237,10 @@ fit_01 <- stan(file = '/Users/yn250006/Desktop/Git/MarketingMixModeling/HB_SSM_S
 
 #### 結果の確認
 フィッティングが終わったので、結果を見てみましょう。`fit_01`からサンプルを抽出して加工します。
+
+ダメだーー
+
+
 
 ```{r}
 ## サンプルを抽出する
