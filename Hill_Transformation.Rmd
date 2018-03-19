@@ -93,8 +93,9 @@ simulate_y <- function(pars) {
 
    # X_01_raw  <- rnorm(n, 100, 2)
    X_01_raw  <- runif(n)
-   X_01_fil  <- stats::filter(X_01_raw, lambda_01, "recursive")
-   X_01_conv <- hill_transformation(X_01_fil, k_01, s_01)
+   # X_01_fil  <- stats::filter(X_01_raw, lambda_01, "recursive")
+   # X_01_conv <- hill_transformation(X_01_fil, k_01, s_01)
+   X_01_conv <- hill_transformation(X_01_raw, k_01, s_01)
 
    X_02_raw  <- rnorm(n, 100, 2)
    X_02_fil  <- stats::filter(X_02_raw, lambda_02, "recursive")
@@ -131,17 +132,17 @@ dat <- simulate_y(pars)
 
 ```{r}
 return_AIC <- function(param, dat) {
-   beta_01   <- param[1]
-   lambda_01 <- param[2]
-   k_01      <- param[3]
-   s_01      <- param[4]
+   # beta_01   <- param[1]
+   # lambda_01 <- param[2]
+   k_01      <- param[1]
+   s_01      <- param[2]
    # beta_02   <- param[5]
    # lambda_02 <- param[6]
    # k_02      <- param[7]
    # s_02      <- param[8]
    
-   dat$X_01_fil  <- stats::filter(dat$X_01, lambda_01, "recursive")
-   dat$X_01_conv <- hill_transformation(dat$X_01_fil, k_01, s_01)
+   # dat$X_01_fil  <- stats::filter(dat$X_01, lambda_01, "recursive")
+   dat$X_01_conv <- hill_transformation(dat$X_01, k_01, s_01)
    # dat$X_02_fil  <- stats::filter(dat$X_02, lambda_02, "recursive")
    # dat$X_02_conv <- hill_transformation(dat$X_02_fil, k_02, s_02)
    
@@ -149,14 +150,14 @@ return_AIC <- function(param, dat) {
    AIC(lm(Y ~ X_01_conv, dat))
 }
 ### 適当な数値を入れてみる
-return_AIC(rep(0.5, 4), dat)
+return_AIC(rep(0.5, 2), dat)
 # 273.1042
 ```
 
 ではフィッティングしてみましょう。
 
 ```{r}
-param <- rep(0.5, 4)
+param <- rep(0.5, 2)
 res_optim <- optim(par = optim(par = param, fn = return_AIC, dat = dat)$par,
                    fn = return_AIC, dat = dat)
 ```
@@ -165,9 +166,24 @@ res_optim <- optim(par = optim(par = param, fn = return_AIC, dat = dat)$par,
 
 ```{r}
 # true_par <- c(0.8, 0.2, 0.7, 0.7, 0.4, 0.4, 4, 1)
-true_par <- c(0.8, 0.7, 0.4, 4)
+true_par <- c(0.4, 4)
 print(cbind(true_par, res_optim$par), digits = 2)
 ```
+
+うーん、`k`はともかく`s`が当たっていませんね。推定された値でのプロットを見てみましょう。
+
+```{r}
+plot(dat$X_01, hill_transformation(dat$X_01, 0.4, 4), 
+     col = 2, xlim = c(0, 1), ylim = c(0, 1),
+     ylab = "Hill Transformed Value")
+par(new = T)
+plot(dat$X_01, hill_transformation(dat$X_01, res_optim$par[1], res_optim$par[2]), 
+     col = 3, xlim = c(0, 1), ylim = c(0, 1), axes = F,
+     ylab = "")
+legend("topleft", legend = c("k = 0.4, s = 4", "k = 0.58, s = 0"), 
+       col = c(2:3), lty = rep(1, 2))
+```
+
 
 全く当たっていませんね。。
 
@@ -245,7 +261,9 @@ fit_01 <- stan(file = '/Users/nakahashi/Desktop/Git/MarketingMixModeling/Hill_Tr
 
 ダメだーー
 xを(0, 1)にスケールしても、X_01に限定してもダメだー
-
+誤差分散を小さくしてもダメだー
+filterを固定してもダメだー
+むしろfilterしてなくてもダメだー
 
 
 ```{r}
