@@ -81,27 +81,29 @@ rstan_options(auto_write = TRUE)
 simulate_y <- function(pars) {
    n         <- pars[1]  # num of observation
    mu        <- pars[2]  # intercept
-   beta_01   <- pars[3]  # regression coefficient of X1 to be esitmated
-   beta_02   <- pars[4]  # regression coefficient of X2 to be esitmated
+   var_e     <- pars[3]  # residual variance
+   beta_01   <- pars[4]  # regression coefficient of X1 to be esitmated
    lambda_01 <- pars[5]  # decay rate of Ad-Stock effect of X1
-   lambda_02 <- pars[6]  # decay rate of Ad-Stock effect of X2
-   k_01      <- pars[7]  # k for X1
-   k_02      <- pars[8]  # k for X2
-   s_01      <- pars[9]  # s for X1
-   s_02      <- pars[10] # s for X2
-   var_e     <- pars[11] # residual variance
+   k_01      <- pars[6]  # k for X1
+   s_01      <- pars[7]  # s for X1
+   beta_02   <- pars[8]  # regression coefficient of X2 to be esitmated
+   lambda_02 <- pars[9]  # decay rate of Ad-Stock effect of X2
+   k_02      <- pars[10] # k for X2
+   s_02      <- pars[11] # s for X2
 
-   X_01_raw  <- rnorm(n, 100, 2)
+   # X_01_raw  <- rnorm(n, 100, 2)
+   X_01_raw  <- runif(n)
    X_01_fil  <- stats::filter(X_01_raw, lambda_01, "recursive")
    X_01_conv <- hill_transformation(X_01_fil, k_01, s_01)
-   
+
    X_02_raw  <- rnorm(n, 100, 2)
    X_02_fil  <- stats::filter(X_02_raw, lambda_02, "recursive")
    X_02_conv <- hill_transformation(X_02_fil, k_02, s_02)
    
    error <- rnorm(n, 0, sqrt(var_e))
    
-   y     <- mu + beta_01 * X_01_conv + beta_02 * X_02_conv + error
+   # y     <- mu + beta_01 * X_01_conv + beta_02 * X_02_conv + error
+   y     <- mu + beta_01 * X_01_conv + error
    dat <- data.frame(
       "Y" = y,
       "X_01" = X_01_raw,
@@ -112,7 +114,7 @@ simulate_y <- function(pars) {
 
 ## データ生成
 set.seed(123)
-pars <- c(100, 5, 0.8, 0.2, 0.7, 0.7, 0.4, 0.4, 4, 1, 1)
+pars <- c(100, 5, 0.8, 0.2, 0.7, 0.7, 0.4, 0.4, 4, 1, 0.1)
 dat <- simulate_y(pars)
 ```
 
@@ -130,30 +132,31 @@ dat <- simulate_y(pars)
 ```{r}
 return_AIC <- function(param, dat) {
    beta_01   <- param[1]
-   beta_02   <- param[2]
-   lambda_01 <- param[3]
-   lambda_02 <- param[4]
-   k_01      <- param[5]
-   k_02      <- param[6]
-   s_01      <- param[7]
-   s_02      <- param[8]
+   lambda_01 <- param[2]
+   k_01      <- param[3]
+   s_01      <- param[4]
+   # beta_02   <- param[5]
+   # lambda_02 <- param[6]
+   # k_02      <- param[7]
+   # s_02      <- param[8]
    
    dat$X_01_fil  <- stats::filter(dat$X_01, lambda_01, "recursive")
    dat$X_01_conv <- hill_transformation(dat$X_01_fil, k_01, s_01)
-   dat$X_02_fil  <- stats::filter(dat$X_02, lambda_02, "recursive")
-   dat$X_02_conv <- hill_transformation(dat$X_02_fil, k_02, s_02)
+   # dat$X_02_fil  <- stats::filter(dat$X_02, lambda_02, "recursive")
+   # dat$X_02_conv <- hill_transformation(dat$X_02_fil, k_02, s_02)
    
-   AIC(lm(Y ~ X_01_conv + X_02_conv, dat))
+   # AIC(lm(Y ~ X_01_conv + X_02_conv, dat))
+   AIC(lm(Y ~ X_01_conv, dat))
 }
 ### 適当な数値を入れてみる
-return_AIC(rep(0.5, 8), dat)
+return_AIC(rep(0.5, 4), dat)
 # 273.1042
 ```
 
 ではフィッティングしてみましょう。
 
 ```{r}
-param <- rep(0.5, 8)
+param <- rep(0.5, 4)
 res_optim <- optim(par = optim(par = param, fn = return_AIC, dat = dat)$par,
                    fn = return_AIC, dat = dat)
 ```
@@ -161,7 +164,8 @@ res_optim <- optim(par = optim(par = param, fn = return_AIC, dat = dat)$par,
 少し時間がかかったのでイヤな予感がしますが、パラメータを確認してみると：
 
 ```{r}
-true_par <- c(0.8, 0.2, 0.7, 0.7, 0.4, 0.4, 4, 1)
+# true_par <- c(0.8, 0.2, 0.7, 0.7, 0.4, 0.4, 4, 1)
+true_par <- c(0.8, 0.7, 0.4, 4)
 print(cbind(true_par, res_optim$par), digits = 2)
 ```
 
@@ -174,8 +178,9 @@ print(cbind(true_par, res_optim$par), digits = 2)
 ```{r}
 dat_Stan <- list(N        = nrow(dat),
                  Y        = dat$Y,
-                 X_01     = dat$X_01,
-                 X_02     = dat$X_02)
+                 X_01     = dat$X_01
+                 # X_02     = dat$X_02
+                 )
 ```
 
 またStanのスクリプトは以下のようになります。
@@ -239,6 +244,7 @@ fit_01 <- stan(file = '/Users/nakahashi/Desktop/Git/MarketingMixModeling/Hill_Tr
 フィッティングが終わったので、結果を見てみましょう。`fit_01`からサンプルを抽出して加工します。
 
 ダメだーー
+xを(0, 1)にスケールしても、X_01に限定してもダメだー
 
 
 
