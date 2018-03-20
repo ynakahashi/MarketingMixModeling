@@ -58,8 +58,9 @@ $$
 GA(x_{t}; \alpha, L) = \frac{\sum_{l = 0}^{L}x_{t-l}\alpha^{l}}{\sum_{l = 0}^{L}\alpha^{l}}
 $$
 
-を用いていますが、今回の検証の対象外なのでAd-Stock効果としてはいつも通りKoyck型のものとします。
+を用いていますが、今回の検証ではAd-Stock効果をみておらず、説明変数の生の値を変換しています[^1]。
 
+[^1]:要するにAd-Stock効果の検証がうまく行かなかったんです。。。
 
 
 #### ライブラリの読み込み
@@ -74,7 +75,7 @@ rstan_options(auto_write = TRUE)
 ```
 
 #### シミュレーションデータの生成
-分析用のデータを以下のように生成します。特別なことは何もしておらず、与えた数値にしたがって目的変数`y`と説明変数`X1`および`X2`を作成します。
+分析用のデータ生成ですが、まず説明変数`X1`を*runif*により作成します。次に与えたパラメータからヒルの式を用いて変換し、目的変数`y`を作成します。
 
 ```{r}
 ## データ生成用の関数を定義
@@ -83,13 +84,13 @@ simulate_y <- function(pars) {
    mu        <- pars[2]  # intercept
    var_e     <- pars[3]  # residual variance
    beta_01   <- pars[4]  # regression coefficient of X1 to be esitmated
-   lambda_01 <- pars[5]  # decay rate of Ad-Stock effect of X1
+   # lambda_01 <- pars[5]  # decay rate of Ad-Stock effect of X1
    k_01      <- pars[6]  # k for X1
    s_01      <- pars[7]  # s for X1
-   beta_02   <- pars[8]  # regression coefficient of X2 to be esitmated
-   lambda_02 <- pars[9]  # decay rate of Ad-Stock effect of X2
-   k_02      <- pars[10] # k for X2
-   s_02      <- pars[11] # s for X2
+   # beta_02   <- pars[8]  # regression coefficient of X2 to be esitmated
+   # lambda_02 <- pars[9]  # decay rate of Ad-Stock effect of X2
+   # k_02      <- pars[10] # k for X2
+   # s_02      <- pars[11] # s for X2
 
    # X_01_raw  <- rnorm(n, 100, 2)
    X_01_raw  <- runif(n)
@@ -97,9 +98,11 @@ simulate_y <- function(pars) {
    # X_01_conv <- hill_transformation(X_01_fil, k_01, s_01)
    X_01_conv <- hill_transformation(X_01_raw, k_01, s_01)
 
-   X_02_raw  <- rnorm(n, 100, 2)
-   X_02_fil  <- stats::filter(X_02_raw, lambda_02, "recursive")
-   X_02_conv <- hill_transformation(X_02_fil, k_02, s_02)
+   # X_02_raw  <- rnorm(n, 100, 2)
+   # X_02_raw  <- runif(n)
+   # X_02_fil  <- stats::filter(X_02_raw, lambda_02, "recursive")
+   # X_02_conv <- hill_transformation(X_02_fil, k_02, s_02)
+   # X_02_conv <- hill_transformation(X_02_raw, k_02, s_02)
    
    error <- rnorm(n, 0, sqrt(var_e))
    
@@ -107,70 +110,99 @@ simulate_y <- function(pars) {
    y     <- mu + beta_01 * X_01_conv + error
    dat <- data.frame(
       "Y" = y,
-      "X_01" = X_01_raw,
-      "X_02" = X_02_raw
+      "X_01"      = X_01_raw,
+      # "X_01_fil"  = X_01_fil,
+      "X_01_conv" = X_01_conv
+      # "X_02" = X_02_raw,
+      # "X_02_conv" = X_02_conv
    )
    return(na.omit(dat))
 }
 
 ## データ生成
 set.seed(123)
-pars <- c(100, 5, 0.8, 0.2, 0.7, 0.7, 0.4, 0.4, 4, 1, 0.1)
+# pars <- c(100, 5, 0.1, 0.8, 0.7, 0.4, 4, 0.2, 0.7, 0.4, 1)
+pars <- c(100, 5, 0.1, 0.8, 0.7, 0.4, 4)
 dat <- simulate_y(pars)
 ```
 
-`X1`、`X2`それぞれについて、
+`X1`について、
 
- - 推定したい広告効果　⇒　`0.8`、`0.2`
- - Koyckラグの残存効果　⇒　ともに`0.7`
- - ヒルの式の`k`および`s`　⇒　`0.4`および`4`、`0.4`および`1`
+ - 推定したい広告効果　⇒　`0.8`
+ <!-- - Koyckラグの残存効果　⇒　ともに`0.7` -->
+ - ヒルの式の`k`および`s`　⇒　`0.4`および`4`
 
-と指定しています。これらのパラメータを、もとの`X1`および`X2`から推定することが狙いです。
+と指定しており、これらのパラメータを元の`X_01`から推定することが狙いです。ちなみに今回のパラメータでは`X_01`と`変換後のX_01`は以下のようになります：
+
+```{r}
+plot(dat$X_01, dat$X_01_conv, col = 2, xlim = c(0, 1), ylim = c(0, 1),
+     ylab = "")
+# par(new = T)
+# plot(dat$X_02, dat$X_02_conv, col = 3, xlim = c(0, 1), ylim = c(0, 1), 
+#      axes = F, ylab = "")
+```
+
+
 
 #### optimによるフィッティング
-手始めに*optim*を使ってフィッティングしてみましょう。これまでの記事でも度々*optim*を使ってきましたが、なかなか精度良く推定することが可能です。
+手始めに*optim*を使ってフィッティングしてみましょう。これまでの記事でも度々*optim*を使ってきましたが、なかなか精度良く推定することが可能です。ただしAICを計算するのが面倒なのでここでは`beta`を直接推定しないことにして、*lm*を使います。よって推定対象は`k_01`と`s_01`の２つだけです。
 
 ```{r}
 return_AIC <- function(param, dat) {
-   # beta_01   <- param[1]
+   # mu        <- param[1]
+   # beta_01   <- param[2]
    # lambda_01 <- param[2]
    k_01      <- param[1]
    s_01      <- param[2]
    # beta_02   <- param[5]
    # lambda_02 <- param[6]
-   # k_02      <- param[7]
-   # s_02      <- param[8]
+   # k_02      <- param[3]
+   # s_02      <- param[4]
    
    # dat$X_01_fil  <- stats::filter(dat$X_01, lambda_01, "recursive")
    dat$X_01_conv <- hill_transformation(dat$X_01, k_01, s_01)
    # dat$X_02_fil  <- stats::filter(dat$X_02, lambda_02, "recursive")
-   # dat$X_02_conv <- hill_transformation(dat$X_02_fil, k_02, s_02)
-   
+   # dat$X_02_conv <- hill_transformation(dat$X_02, k_02, s_02)
+
+   # e <- dat$Y - (mu + dat$X_01_conv * beta_01)
+   # return(t(e) %*% e)
+      
    # AIC(lm(Y ~ X_01_conv + X_02_conv, dat))
    AIC(lm(Y ~ X_01_conv, dat))
 }
-### 適当な数値を入れてみる
-return_AIC(rep(0.5, 2), dat)
-# 273.1042
 ```
 
-ではフィッティングしてみましょう。
+```{r}
+### 適当な数値を入れてみる
+return_AIC(rep(0.5, 2), dat)
+# 60.47417
+```
+
+ちゃんと動くようなのでフィッティングしてみましょう。
 
 ```{r}
-param <- rep(0.5, 2)
+param <- rep(1, 2)
 res_optim <- optim(par = optim(par = param, fn = return_AIC, dat = dat)$par,
                    fn = return_AIC, dat = dat)
 ```
 
-少し時間がかかったのでイヤな予感がしますが、パラメータを確認してみると：
+パラメータを確認してみると：
 
 ```{r}
 # true_par <- c(0.8, 0.2, 0.7, 0.7, 0.4, 0.4, 4, 1)
-true_par <- c(0.4, 4)
-print(cbind(true_par, res_optim$par), digits = 2)
+true_par    <- c(0.8, 0.4, 4)
+dat$X_01_conv_opt <- hill_transformation(dat$X_01, 
+                                         res_optim$par[1], res_optim$par[2])
+# dat$X_02_conv_opt <- hill_transformation(dat$X_02, 
+#                                          res_optim$par[3], res_optim$par[4])
+# res_par     <- c(coef(lm(Y ~ X_01_conv_opt + X_02_conv_opt, dat))[2:3],
+#                  res_optim$par)
+optim_par     <- c(coef(lm(Y ~ X_01_conv_opt, dat))[2],
+                 res_optim$par)
+print(cbind(true_par, optim_par), digits = 2)
 ```
 
-うーん、`k`はともかく`s`が当たっていませんね。推定された値でのプロットを見てみましょう。
+うーん、`s`がちょっと外れているようですね。推定された値でのプロットを見てみましょう。
 
 ```{r}
 plot(dat$X_01, hill_transformation(dat$X_01, 0.4, 4), 
@@ -180,12 +212,11 @@ par(new = T)
 plot(dat$X_01, hill_transformation(dat$X_01, res_optim$par[1], res_optim$par[2]), 
      col = 3, xlim = c(0, 1), ylim = c(0, 1), axes = F,
      ylab = "")
-legend("topleft", legend = c("k = 0.4, s = 4", "k = 0.58, s = 0"), 
+legend("topleft", legend = c("k = 0.4, s = 4", "k = 0.49, s = 1.9"), 
        col = c(2:3), lty = rep(1, 2))
 ```
 
-
-全く当たっていませんね。。
+ちょっとカーブのメリハリがなく、全体として直線的になってしまっています。
 
 
 #### Stanによるフィッティング
@@ -199,58 +230,44 @@ dat_Stan <- list(N        = nrow(dat),
                  )
 ```
 
-またStanのスクリプトは以下のようになります。
+またStanのスクリプトは以下のようになります。今回は特別な指定はしていませんが、`X_01_conv`を作成するために*transformed_parameters*ブロックを置いています。
 
 ```{stan}
 data {
-   int N; // 地域ごとの観測値の数（data_length）
-   int K; // 地域の数（num_region）
-   vector[N*K] Y; // 観測値のベクトル
-   vector[N*K] X; // 説明変数のベクトル
-   int<lower=1, upper=K> Area_ID[N*K];
+   int N;
+   vector[N] Y;
+   vector[N] X_01;
 }
 
 parameters {
-   real state_t0;     // 状態変数の0期目の平均
-   vector[N*K] state; // 状態変数のベクトル
-   real beta_0;       // 回帰係数の事前分布の平均
-   vector[K] beta;    // 地域ごとの回帰係数のベクトル
-   real<lower=0> var_state_t0; // 状態変数の0期目の分散
-   real<lower=0> var_state;    // 状態変数の分散
-   real<lower=0> var_beta_0;   // 回帰係数の事前分布の分散
-   real<lower=0> var_error;    // 誤差分散
+   real mu;
+   real beta_01;
+   real<lower=0, upper=1> shape_k_01;
+   real<lower=0, upper=5> shape_s_01;
+   real<lower=0> var_error;
+}
+
+transformed parameters {
+   vector[N] X_01_conv;
+   for(k in 1:N) {
+      X_01_conv[k] = 1 / (1 + (X_01[k] / shape_k_01)^-shape_s_01);
+   }
 }
 
 model {
-   // 状態変数をサンプリング
-   for (k in 1:K) {
-      // 1期目の値は0期目の分布からサンプルする
-      state[1 + (k-1)*N] ~ normal(state_t0, var_state_t0);
-      
-      // 2期目以降は前期の値を平均とした分布からサンプルする
-      for(i in 2:N) {
-         state[i + (k-1)*N] ~ normal(state[i-1 + (k-1)*N], var_state);
-      }
-   }
-   
-   // 回帰係数をサンプリング
-   for (k in 1:K) {
-      beta[k] ~ normal(beta_0, var_beta_0);
-   }
-
-   // Yをサンプリング
-   for(i in 1:(N*K)) {
-      Y[i] ~ normal(state[i] + beta[Area_ID[i]] * X[i], var_error);
+   // Sampling
+   for(i in 1:N) {
+      Y[i] ~ normal(mu + beta_01 * X_01_conv[i], var_error);
    }
 }
 ```
 
-上記のモデルを用いて、フィッティングを行います。
+上記のモデルを用いて、フィッティングしてみましょう。
 
 ```{r}
 fit_01 <- stan(file = '/Users/nakahashi/Desktop/Git/MarketingMixModeling/Hill_Transformation.stan',
                data = dat_Stan,
-               iter = 3000,
+               iter = 10000,
                chains = 4,
                seed = 123)
 ```
@@ -259,101 +276,32 @@ fit_01 <- stan(file = '/Users/nakahashi/Desktop/Git/MarketingMixModeling/Hill_Tr
 #### 結果の確認
 フィッティングが終わったので、結果を見てみましょう。`fit_01`からサンプルを抽出して加工します。
 
-ダメだーー
-xを(0, 1)にスケールしても、X_01に限定してもダメだー
-誤差分散を小さくしてもダメだー
-filterを固定してもダメだー
-むしろfilterしてなくてもダメだー
-
-
 ```{r}
 ## サンプルを抽出する
 res_01 <- rstan::extract(fit_01)
 
 ## 該当するパラメータを取り出す
 ests <- summary(fit_01)$summary
-t0_rows    <- rownames(ests)[grep("state_t0", rownames(ests))]
-state_rows <- rownames(ests)[grep("state\\[", rownames(ests))]
-b0_rows    <- rownames(ests)[grep("beta_0", rownames(ests))]
-beta_rows  <- rownames(ests)[grep("beta\\[", rownames(ests))]
-
-## 状態変数
-state_par <- 
-   ests %>% 
-   data.frame %>% 
-   select(mean) %>% 
-   mutate("Par" = rownames(ests)) %>% 
-   filter(Par %in% state_rows) %>% 
-   mutate("Area" = DF$Area_ID)
-
-state_cmp <- data.frame(
-   True = State,
-   Est = state_par$mean,
-   Area = as.factor(state_par$Area),
-   YM = DF$YM
-)
+beta_rows  <- rownames(ests)[grep("beta", rownames(ests))]
+shape_rows <- rownames(ests)[grep("shape", rownames(ests))]
 ```
 
+まずは収束の判断です。トレースプロットとヒストグラムを確認します。
 
 ```{r}
-stan_trace(fit_01, pars = t0_rows)
-stan_trace(fit_01, pars = state_rows[c(1, 49, 97, 145, 193)])
-stan_trace(fit_01, pars = b0_rows)
-stan_trace(fit_01, pars = beta_rows)
 stan_trace(fit_01, pars = beta_rows, inc_warmup = T)
-stan_hist(fit_01, pars = t0_rows)
-stan_hist(fit_01, pars = state_rows[c(1, 49, 97, 145, 193)])
-stan_hist(fit_01, pars = b0_rows)
+stan_trace(fit_01, pars = shape_rows, inc_warmup = T)
+stan_trace(fit_01, pars = beta_rows)
+stan_trace(fit_01, pars = shape_rows)
+stan_hist(fit_01, pars = beta_rows, inc_warmup = T)
+stan_hist(fit_01, pars = shape_rows, inc_warmup = T)
 stan_hist(fit_01, pars = beta_rows)
-stan_hist(fit_01, pars = beta_rows)
+stan_hist(fit_01, pars = shape_rows)
 ```
 
+うーん、`k`の収束が悪いようですね。
 
-まずは状態変数の推定結果を見てみましょう。実際の値と推定値を並べてみます。
-（なお以降の作業の前にサンプルのtraceプロットとヒストグラムを確認し、収束していると判断しています）
-
-
-
-```{r}
-state_cmp %>% 
-   gather("Var", "Val", -c(Area, YM)) %>% 
-   ggplot(., aes(x = YM, y = Val, colour = Var)) +
-   geom_line() +
-   facet_wrap(~Area)
-```
-
-おぉ、かなり精度良く推定できているようですね！状態変数の初期値や分散の推定値はどうでしょうか？
-
-```{r}
-ests %>% 
-   data.frame %>% 
-   select(mean) %>% 
-   rename("Estimated" = mean) %>% 
-   mutate("Par" = rownames(ests)) %>% 
-   filter(Par %in% t0_rows) %>% 
-   mutate("True" = c(state_t0, var_state_t0)) %>% 
-   mutate("Simulated" = c(
-      mean(DF[c(1, 49, 97, 145, 193), "True_s"]),
-      var(DF[c(1, 49, 97, 145, 193), "True_s"])
-   )) %>% 
-   select(Par, True, Simulated, Estimated)
-```
-
-真の値がそれぞれ`3`および`1`であったのに対し、生成されたデータでは`3.7`および`0.85`でした。推定された値は`3.7`および`1.3`で、分散がやや過大に推定されているようです。ただし以下に示すように、推定値の95%信用区間も結構広いため、逸脱しているとまでは言えないようです。
-
-```{r}
-ests %>% 
-   data.frame %>% 
-   select(X2.5., X97.5.) %>% 
-   rename("Lower95" = X2.5.,
-          "Upeer95" = X97.5.) %>% 
-   mutate("Par" = rownames(ests)) %>% 
-   filter(Par %in% t0_rows) %>% 
-   select(Par, everything())
-```
-
-
-続いて回帰係数はどうでしょうか。
+ひとまず回帰係数の推定結果を見てみましょう。実際の値と推定値を並べてみます。
 
 ```{r}
 beta_par <- 
@@ -363,49 +311,31 @@ beta_par <-
    mutate("Par" = rownames(ests)) %>% 
    filter(Par %in% beta_rows)
 
-beta_cmp <- data.frame(
-   True = beta_ad,
-   Est = beta_par$mean
-)
-
-ggplot(beta_cmp, aes(x = True, y = Est)) +
-   geom_point() +
-   coord_fixed()
+sprintf("True = 0.8, Stan_Est = %.3f, Optim_Est = %.3f", beta_par$mean, optim_par[1])
 ```
 
-こちらも、事前に設定した回帰係数と推定値が似通っているようです。数値を確認しても、良い精度で推定できていることが確認できます。
+あらら、*optim*の結果よりも外れてしまいました。Shape効果の方はどうでしょうか。
 
 ```{r}
 ests %>% 
-   data.frame %>% 
+   data.frame() %>% 
    select(mean) %>% 
-   mutate("Par" = rownames(ests)) %>% 
-   filter(Par %in% beta_rows) %>% 
-   bind_cols("True" = beta_ad) %>% 
-   select(Par, True, mean)
+   mutate(Par = rownames(ests),
+          Type = "Stan") %>% 
+   filter(Par %in% shape_rows) %>% 
+   bind_rows(data.frame(
+      mean = c(0.4, 4, optim_par[-1]),
+      Par = rep(c("shape_k_01", "shape_s_01"), 2),
+      Type = c(rep("True", 2), rep("Optim", 2))
+   )) %>% 
+   spread(Type, mean) %>% 
+   select(Par, True, Stan, Optim)
+
 ```
 
-最後に、回帰係数の事前分布についても見ておきましょう。
-
-```{r}
-ests %>% 
-   data.frame %>% 
-   select(mean) %>% 
-   mutate("Par" = rownames(ests)) %>% 
-   filter(Par %in% b0_rows) %>% 
-   bind_cols("True" = c(mu_beta, var_beta)) %>% 
-   select(Par, True, mean)
-```
-
-回帰係数の事前分布の分散はちょっと大きく推定されているようですが、平均は近しい値となっているようです。
+こちらも*optim*の方がまだ設定値に近いようですね。
 
 
 #### 終わりに
 
-以上、「階層ベイズと状態空間モデルを合わせて取り扱いたい」という試みでしたが、結果としては概ね満足の行くものになったと思います。
-序盤に書いた通り、階層ベイズ + 状態空間モデルのような非常に複雑なモデルであっても、stanを使えば非常に簡単に推定が可能です。
-
-これまで広告効果の推定についていくつか記事を書いてきましたが、実はゴールとなるモデルとしてはこれを想定していました。
-あとはこのモデルにこれまで紹介してきたようなAdStock効果の推定を組み込めば、試してみたかったモデルは一通り完了することになります。
-これについても追って紹介したいと思っています。
 
