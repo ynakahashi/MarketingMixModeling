@@ -9,13 +9,14 @@ output: html_notebook
 しつこいようですが、*Marketing Mix Modeling*（*MMM*）の話題です。
 
 先日、[こんな面白い論文](https://static.googleusercontent.com/media/research.google.com/ja//pubs/archive/45999.pdf)を見つけました。
-GoogleのResearcherによるMMMの論文（彼らはMedia Mix Modelingと呼んでいます）なのですが、彼らは**ヒルの式**を用いて広告のShape効果（Carveture効果）を推定するということをやっています。ここでShape効果・carveture効果とは、メディアの露出量に対する目的変数の反応を示す曲線を指すようで、ヒルの式とは：
+GoogleのResearcherによるMMMの論文（彼らはMedia Mix Modelingと呼んでいます）なのですが、**ヒルの式**を用いて広告のShape効果（Carveture効果）を推定するということをやっています。ここでShape効果・carveture効果とは、メディアの露出量に対する目的変数の反応を示す曲線を指すようで、ヒルの式とは：
 
 $$
 H(x; K, S) = \frac{1}{1 + (\frac{x}{K})^{-S}}
 $$
-であり、$K > 0$や$S > 0$となるパラメータによってLogやSigmoidの形状を表現することができるもののようです。
-ここでヒルの式によってxがどのような形状となるかを確認してみましょう。まずはヒルの式を以下のように定義します。
+であり、$K > 0$や$S > 0$となるパラメータによってLogやSigmoidの形状を表現することができるようです。
+
+ヒルの式によってxがどのような形状となるか、実際に確認してみましょう。まずはヒルの式を以下のように定義します。
 
 ```{r}
 hill_transformation <- function(x, k, s) {
@@ -48,9 +49,7 @@ legend("topleft", legend = c("k = 0.4, s = 4", "k = 0.4, s = 1",
        col = c(2:5), lty = rep(1, 4))
 ```
 
-このように、パラメータを変更することで元の値を柔軟に変換することが可能です。
-
-これまで私が書いてきた記事では、いずれも広告効果（回帰係数）そのものを推定する方法にばかり注目しており、説明変数の"効き方"については触れてきませんでした。これは、広告の効果は出稿が増すにつれて段々と減少していくことを仮定することが多く、対数を取ることでそういった飽和を表現できるためです。また両対数モデル（yとxの両方を対数変換したモデル）であれば回帰係数がそのまま弾力性になるという性質を持つため便利であり、安易に対数変換を選択していました。しかし、これではちょっと検討が足りないと言われても仕方ありません。
+このように、パラメータを変更することで元の値を柔軟に変換することが可能です。これまで私が書いてきた記事では、いずれも広告効果（回帰係数）そのものを推定する方法にばかり注目しており、説明変数の"効き方"については触れてきませんでした。これではちょっと検討が足りないと言われても仕方ありません。
 
 というわけで本エントリーでは、ヒルの式により変換したXを用いてシミュレーションデータを発生させ、元のXから変数変換のためのパラメータを推定できるかを検証したいと思います。なお元論文ではAd-Stock効果としてGeometric Ad-Stock：
 
@@ -60,7 +59,7 @@ $$
 
 を用いていますが、今回の検証ではAd-Stock効果をみておらず、説明変数の生の値を変換しています[^1]。
 
-[^1]:要するにAd-Stock効果の検証がうまく行かなかったんです。。。
+[^1]:要するにAd-Stock効果のパラメータの同時推定がうまく行かなかったんです。。。
 
 
 #### ライブラリの読み込み
@@ -198,7 +197,7 @@ dat$X_01_conv_opt <- hill_transformation(dat$X_01,
 # res_par     <- c(coef(lm(Y ~ X_01_conv_opt + X_02_conv_opt, dat))[2:3],
 #                  res_optim$par)
 optim_par     <- c(coef(lm(Y ~ X_01_conv_opt, dat))[2],
-                 res_optim$par)
+                   res_optim$par)
 print(cbind(true_par, optim_par), digits = 2)
 ```
 
@@ -216,13 +215,48 @@ legend("topleft", legend = c("k = 0.4, s = 4", "k = 0.49, s = 1.9"),
        col = c(2:3), lty = rep(1, 2))
 ```
 
-ちょっとカーブのメリハリがなく、全体として直線的になってしまっています。
+ちょっとカーブのメリハリがなく、全体として直線的になってしまっています。これが今回のサンプルで偶々発生したものなのか、それとも`s`の推定に何らかの偏りがあるのか確かめて見ましょう。同様の試行を1,000回繰り返してみます。
 
+
+```{r}
+## 5番目のパラメータはAd-Stockのλだが今回は不使用
+pars <- c(100, 5, 0.1, 0.8, 0.7, 0.4, 4)
+
+n             <- 1000
+res_optim_all <- matrix(NA, n, 3)
+param         <- rep(1, 2)
+
+try_s <- function(pars) {
+
+   dat <- simulate_y(pars)
+   res_optim <- optim(par = optim(par = param, fn = return_AIC, dat = dat)$par,
+                      fn = return_AIC, dat = dat)
+   dat$X_01_conv_opt <- hill_transformation(dat$X_01,
+                                            res_optim$par[1], res_optim$par[2])
+   return(c(coef(lm(Y ~ X_01_conv_opt, dat))[2], res_optim$par))
+}
+
+for (i in 1:n) {
+   res_optim_all[i, ] <- tryCatch(try_s(pars), error = function(e) return(rep(0, 3)))
+}
+```
+
+*tryCatch*を使って無理やりループを回しましたが、やはり推定が不安定なようで全体の4割ちょっとしか収束していません。その収束した解のバラツキを見てみても以下のようにかなり広がってしまっています。
+
+```{r}
+nrow(res_optim_all[res_optim_all[, 1] != 0.0, ])
+MASS::truehist(res_optim_all[res_optim_all[, 1] != 0.0, 3])
+```
 
 #### Stanによるフィッティング
 では今度はStanを使ってみましょう。以下のように指定します。
 
 ```{r}
+### データの再作成
+set.seed(123)
+pars <- c(100, 5, 0.1, 0.8, 0.7, 0.4, 4)
+dat <- simulate_y(pars)
+
 dat_Stan <- list(N        = nrow(dat),
                  Y        = dat$Y,
                  X_01     = dat$X_01
@@ -286,7 +320,7 @@ beta_rows  <- rownames(ests)[grep("beta", rownames(ests))]
 shape_rows <- rownames(ests)[grep("shape", rownames(ests))]
 ```
 
-まずは収束の判断です。トレースプロットとヒストグラムを確認します。
+まずは収束の判断です。Rhatが1.1未満であることを確認した上で、トレースプロットとヒストグラムを見てみましょう。
 
 ```{r}
 stan_trace(fit_01, pars = beta_rows, inc_warmup = T)
@@ -330,12 +364,12 @@ ests %>%
    )) %>% 
    spread(Type, mean) %>% 
    select(Par, True, Stan, Optim)
-
 ```
 
 こちらも*optim*の方がまだ設定値に近いようですね。
 
 
 #### 終わりに
+というわけで、今回はあまりパッとしない結果となってしまいました。本当なら良い推定値が得られるようになるまで頑張りたいのですが、思いつくことは色々と試した上でこの結果なので、ひとまず諦めて公開することとしました。何かアイディアが浮かべば再挑戦したいと思います。
 
 
